@@ -129,9 +129,10 @@ class Encoder(nn.Module):
         self.layers = nn.ModuleList([EncoderLayer(self.config) for _ in range(self.config.n_layer)])
 
     def forward(self, inputs, segments):
-        positions = torch.arange(inputs.size(1), device=inputs.device, dtype=inputs.dtype).expand(inputs.size(0),
-                                                                                                  inputs.size(
-                                                                                                      1)).contiguous() + 1
+        positions = torch.arange(inputs.size(1),
+                                 device=inputs.device,
+                                 dtype=inputs.dtype).expand(inputs.size(0),
+                                                            inputs.size(1)).contiguous() + 1
         pos_mask = inputs.eq(self.config.i_pad)
         positions.masked_fill_(pos_mask, 0)
 
