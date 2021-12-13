@@ -112,9 +112,9 @@ class EncoderLayer(nn.Module):
         att_outputs = self.layer_norm1(inputs + att_outputs)
         # (bs, n_enc_seq, d_hidn)
         ffn_outputs = self.pos_ffn(att_outputs)
-        ffn_outputs = self.layer_norm2(ffn_outputs + att_outputs)
+        outputs = self.layer_norm2(ffn_outputs + att_outputs)
         # (bs, n_enc_seq, d_hidn), (bs, n_head, n_enc_seq, n_enc_seq)
-        return ffn_outputs, attn_prob
+        return outputs, attn_prob
 
 
 class Encoder(nn.Module):
@@ -156,36 +156,21 @@ class Config(dict):
     __setattr__ = dict.__setitem__
     """
     Default configuration for BERT
-    
     config = Config({
-    "n_enc_vocab": len(vocab),
+    "n_enc_vocab": len(vocab),  # 30522 is the vocab size of BERT
     "n_enc_seq": 256,
     "n_seg_type": 2,
     "n_layer": 6,
     "d_hidn": 256,
     "i_pad": 0,
     "d_ff": 1024,
-    "n_head": 4,
+    "n_head": 12,
     "d_head": 64,
     "dropout": 0.1,
     "layer_norm_epsilon": 1e-12
     })
-    저작자 세팅
-    {
-    "n_enc_vocab": 0,
-    "n_enc_seq": 512,
-    "n_seg_type": 2,
-    "n_layer": 12,
-    "d_hidn": 768,
-    "i_pad": 0,
-    "d_ff": 3072,
-    "n_head": 12,
-    "d_head": 64,
-    "dropout": 0.1,
-    "layer_norm_epsilon": 1e-12,
-    "n_output": 2
-}
     """
+
     @classmethod
     def load(cls, file):
         with open(file, 'r') as f:

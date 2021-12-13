@@ -22,7 +22,7 @@ Inference Tasks
 
     MNLI - The Multi-Genre Natural Language Inference Corpus is a crowdsourced collection of sentence pairs with textual entailment annotations. Given a premise sentence and a hypothesis sentence, the task is to predict whether the premise entails the hypothesis (entailment), contradicts the hypothesis (contradiction), or neither (neutral). The task has the matched (in-domain) and mismatched (cross-domain) sections.
     QNLI - The Stanford Question Answering Dataset is a question-answering dataset consisting of question-paragraph pairs, where one of the sentences in the paragraph (drawn from Wikipedia) contains the answer to the corresponding question. The task is to determine whether the context sentence contains the answer to the question.
-    RTE The Recognizing Textual Entailment (RTE) datasets come from a series of annual textual entailment challenges. The task is to determine whether the second sentence is the entailment of the first one or not.
+    RTE  - The Recognizing Textual Entailment (RTE) datasets come from a series of annual textual entailment challenges. The task is to determine whether the second sentence is the entailment of the first one or not.
     WNLI - The Winograd Schema Challenge is a reading comprehension task in which a system must read a sentence with a pronoun and select the referent of that pronoun from a list of choices (Hector Levesque, Ernest Davis, and Leora Morgenstern. The winograd schema challenge. In Thirteenth International Conference on the Principles of Knowledge Representation and Reasoning. 2012).
 
 Preprocessing

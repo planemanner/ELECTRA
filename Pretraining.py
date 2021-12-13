@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from DataProcess import PretrainDataSet, pretrin_collate_fn
 from tqdm import tqdm
 import numpy as np
-
+import argparse
 
 """
 BERT 는 Transformer 의 Encoder 만 사용함.
@@ -19,7 +19,11 @@ MLM (Masked Language Model)
  임의의 단어로 대체
 NSP (Next Sentence Prediction)
  CLS Token 으로 문장 A와 B의 관계를 예측하는 것
- ex) A 다음 문장이 B가 맞다면 True 틀리면 False  
+ ex) A 다음 문장이 B가 맞다면 True 틀리면 False
+
+PreSet
+VOCAB 만들어야 함
+  
 """
 
 
@@ -73,8 +77,11 @@ def train(args):
 
     criterion_lm = torch.nn.CrossEntropyLoss(ignore_index=-1, reduction='mean')
     criterion_cls = torch.nn.CrossEntropyLoss()
-    losses = []
+    losses = {"Masked_LM_train_loss": 0.0,
+              "NSP_train_loss": 0.0,
+              "Iteration_cnt": 0}
     optimizer = torch.optim.Adam(params=model.parameters(), lr=args.lr)
+
     for epoch in range(args.epochs):
         for i, value in enumerate(train_loader):
             labels_cls, labels_lm, inputs, segments = map(lambda v: v.to(args.device), value)
@@ -87,14 +94,30 @@ def train(args):
             loss_lm = criterion_lm(logits_lm.view(-1, logits_lm.size(2)), labels_lm.view(-1))
             loss = loss_cls + loss_lm
 
-            loss_val = loss_lm.item()
-            losses.append(loss_val)
-
             loss.backward()
             optimizer.step()
+            with torch.no_grad():
+                losses["NSP_train_loss"] += loss_cls.item()
+                losses["Masked_LM_train_loss"] += loss_lm.item()
+                losses["Iteration_cnt"] += 1
+
+        if args.verbose_period % epoch == 0:
+            LM_LOSS, NSP_LOSS, accum_iter = losses["Masked_LM_train_loss"], losses["NSP_train_loss"], losses["Iteration_cnt"]
+            print(f"EPOCH : {epoch} / {args.epochs}, TRAIN_LM_LOSS : {LM_LOSS / accum_iter}, TRAIN_NSP_LOSS : {NSP_LOSS / accum_iter}")
 
         """
         ------------------------
-        Evaluation Code Line 필요
+        Masked Language Model 과 Next Sentence Prediction 에 대한
+        Evaluation Code Line 필요 ?  
         ------------------------
         """
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--verbose_period", type=int, default=5)
+    parser.add_argument()
+    parser.add_argument()
+    args = parser.parse_args()
+    train(args)

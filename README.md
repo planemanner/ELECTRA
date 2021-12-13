@@ -1,5 +1,5 @@
 # Info
-  - This code is based on [paul-hyund's Code](https://paul-hyun.github.io/bert-01/)
+  - I referred to [paul-hyun's Code](https://paul-hyun.github.io/bert-01/) for understanding BERT model as a newbie in NLP domain
   - And, I'm googling to complete my codebase for training BERT with GLUE BENCHMARK
 # About BERT
  - As described in [BERT paper](https://arxiv.org/pdf/1810.04805.pdf), BERT should be trained in two steps.
