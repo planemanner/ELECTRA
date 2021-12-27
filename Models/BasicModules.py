@@ -90,7 +90,7 @@ class PoswiseFeedForwardNet(nn.Module):
         output = self.conv1(inputs.transpose(1, 2))
         output = self.active(output)
         # (bs, n_seq, d_hidn)
-        output = self.conv2(output).transpose(1, 2)
+        output = self.conv2(output).transpose(1, 2)  # B, WORD_LENGTH, Rep_DIM
         output = self.dropout(output)
         # (bs, n_seq, d_hidn)
         return output
@@ -124,11 +124,10 @@ class Encoder(nn.Module):
 
         self.enc_emb = nn.Embedding(self.config.n_enc_vocab, self.config.d_hidn)
         self.pos_emb = nn.Embedding(self.config.n_enc_seq + 1, self.config.d_hidn)
-        self.seg_emb = nn.Embedding(self.config.n_seg_type, self.config.d_hidn)
 
         self.layers = nn.ModuleList([EncoderLayer(self.config) for _ in range(self.config.n_layer)])
 
-    def forward(self, inputs, segments):
+    def forward(self, inputs):
         positions = torch.arange(inputs.size(1),
                                  device=inputs.device,
                                  dtype=inputs.dtype).expand(inputs.size(0),
@@ -137,7 +136,7 @@ class Encoder(nn.Module):
         positions.masked_fill_(pos_mask, 0)
 
         # (bs, n_enc_seq, d_hidn)
-        outputs = self.enc_emb(inputs) + self.pos_emb(positions) + self.seg_emb(segments)
+        outputs = self.enc_emb(inputs) + self.pos_emb(positions)
 
         # (bs, n_enc_seq, n_enc_seq)
         attn_mask = get_attn_pad_mask(inputs, inputs, self.config.i_pad)
@@ -158,7 +157,7 @@ class Config(dict):
     Default configuration for BERT
     config = Config({
     "n_enc_vocab": len(vocab),  # 30522 is the vocab size of BERT
-    "n_enc_seq": 256,
+    "n_enc_seq": 128,
     "n_seg_type": 2,
     "n_layer": 6,
     "d_hidn": 256,
@@ -181,7 +180,7 @@ class Config(dict):
 def get_attn_pad_mask(seq_q, seq_k, i_pad):
     batch_size, len_q = seq_q.size()
     batch_size, len_k = seq_k.size()
-    pad_attn_mask = seq_k.data.eq(i_pad)
+    pad_attn_mask = seq_k.data.eq(i_pad)  # Pad 랑 값이 일치하면 True. seq_k 는 attention mask
     pad_attn_mask = pad_attn_mask.unsqueeze(1).expand(batch_size, len_q, len_k)
     return pad_attn_mask
 
@@ -191,3 +190,6 @@ def get_attn_decoder_mask(seq):
     subsequent_mask = subsequent_mask.triu(diagonal=1)  # upper triangular part of a matrix(2-D)
     return subsequent_mask
 
+"""
+http://hyundai-main.hunet.co.kr
+"""
