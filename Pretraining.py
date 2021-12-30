@@ -2,9 +2,10 @@ import torch
 from data_related.utils import Config
 from data_related.Custom_dataloader import LM_dataset, LM_collater
 from torch.utils.data import DataLoader
-from Models.BERT import ELECTRA_GENERATOR, ELECTRA_DISCRIMINATOR
+from Models.BERT import ELECTRA_GENERATOR, ELECTRA_DISCRIMINATOR, weight_sync
 import argparse
 from transformers import AutoTokenizer
+import random
 
 """
 BERT 는 Transformer 의 Encoder 만 사용함.
@@ -58,20 +59,80 @@ Batch Size | 32
 Train Epochs | 10 for RTE and STS | 2 for SQuAD | 3 for other tasks
 """
 
+"""
+Masked Output Decoding & Creating Discriminator labels
 
-def sampler(Dist, Logits, device):
-    Gumbel = Dist.sample(Logits.shape).to(device)
-    return (Logits.float() + Gumbel).argmax(dim=-1)
+pred_tokens = self.sample(mlm_gen_logits) # ( #mlm_positions, )
+# produce inputs for discriminator
+generated = masked_inputs.clone() # (B,L) mask 가 포함된 token 을 가져오고
+generated[is_mlm_applied] = pred_tokens # (B,L) 그 위치에 복사 붙여넣 
+# produce labels for discriminator
+is_replaced = is_mlm_applied.clone() # (B,L)
+is_replaced[is_mlm_applied] = (pred_tokens != labels[is_mlm_applied]) # (B,L) label 의 값은 0 또는 1
+"""
+
+
+def sampler(Dist, logits, device):
+    Gumbel = Dist.sample(logits.shape).to(device)
+    return (logits.float() + Gumbel).argmax(dim=-1)
+
+
+def mask_token_filler(sampling_distribution, Generator_logits,
+                      device, masked_tokens, masking_indices, labels):
+    """
+    :param sampling_distribution: It should be Gumbel Distribution
+    :param logits: Generator Language Model Outputs
+    (Batch Size, Num Positions, Num Vocab)
+    :param device: cpu or gpu
+    :param masking_indices: target masking token indices
+    (Batch Size, Num Masking Tokens)
+    Num Masking Tokens < Num Positions
+    Typically, Num Masking Tokens is less than 15 % of Num Positions
+    :return:
+    """
+
+    masked_logits = Generator_logits[masking_indices, :]
+    replaced_tokens = sampler(Dist=sampling_distribution, logits=masked_logits, device=device)
+    Generated_tokens = masked_tokens.clone()
+    Generated_tokens[masking_indices] = replaced_tokens
+    Disc_labels = (labels[masking_indices] != replaced_tokens)  # 실제 잘 바꿨으면 False 를 못바꿨으면 True
+
+    return Generated_tokens, Disc_labels
+
+
+def masking_seq(seq, mask_ratio=0.15):
+    len_with_pad = len(seq)
+    seq_len = len_with_pad - (seq.eq(0).sum() + 2)  # sos, eos is denoted by 2 and pad is the other
+    masking_list = []
+    mask_size = int(seq_len * mask_ratio)
+    for _ in range(mask_size):
+        masking_list += [random.randint(1, (seq_len-1))]
+    seq[masking_list] = 103
+
+    return seq, masking_list
+
+
+def batch_wise_masking(tokens, mask_ratio=0.163):
+    # mask_ratio is empirically determined by examining thousand times to meet 15 % in every iteration
+    # tokens shape is : (BS, Num Pos)
+    masked_outputs = []
+    masked_lists = []
+    for tok in tokens:
+        masked_tks, masked_list = masking_seq(tok, mask_ratio)  # Tensor format
+        masked_outputs += [masked_tks]
+        masked_list += [masked_lists]
+
+    return torch.stack(masked_outputs), masked_lists
 
 
 def pretrain(args):
-    cfg = Config({"n_enc_vocab": 30522,
-                  "n_enc_seq": 128,
+    cfg = Config({"n_enc_vocab": 30522,  # correct
+                  "n_enc_seq": 512,  # correct
                   "n_seg_type": 2,
                   "n_layer": 12,
-                  "d_hidn": 256,
+                  "d_hidn": 128,  # correct
                   "i_pad": 0,
-                  "d_ff": 512,
+                  "d_ff": 256,
                   "n_head": 4,
                   "d_head": 64,
                   "dropout": 0.1,
@@ -83,6 +144,9 @@ def pretrain(args):
 
     Generator = ELECTRA_GENERATOR(config=cfg)
     Discriminator = ELECTRA_DISCRIMINATOR(config=cfg)
+
+    weight_sync(Generator.bert, Discriminator.bert)
+
     D_Loss_Weight = args.d_loss_weight
     criterion_D = torch.nn.BCEWithLogitsLoss()
     criterion_G = torch.nn.CrossEntropyLoss()
@@ -106,7 +170,7 @@ def pretrain(args):
     train_loader = DataLoader(dataset=train_dataset, batch_size=args.batch_size,
                               shuffle=True, collate_fn=collater)
     val_loader = DataLoader(dataset=val_dataset, batch_size=args.batch_size,
-                              shuffle=True, collate_fn=collater)
+                            shuffle=True, collate_fn=collater)
 
     """
     Generator and Discriminator are jointly trained
@@ -120,35 +184,30 @@ def pretrain(args):
             seq_tokens = seq_tokens.to(args.device)
 
             optimizer.zero_grad()
+            masked_tokens, masked_lists = batch_wise_masking(seq_tokens)
+            Generated_Logits = Generator(masked_tokens)
 
-            Generated_Logits = Generator(seq_tokens)
-            """
-            -------------------------
-            |Gumbel sampling part 추가|
-            |Generated_logits 바꿔야함 |
-            -------------------------
-            """
-            G_LOSS = criterion_G(Generated_Logits, seq_tokens)
-            D_Loss =
+            # seq_tokens 도 masked 된 애들만 살려야 함
+            G_LOSS = criterion_G(Generated_Logits.view(-1, cfg.n_enc_vocab), seq_tokens.view(-1))
+            # 반면에 Discriminator 는 전체를 봄
+            with torch.no_grad():
+                Generated_tokens, Disc_labels = mask_token_filler(sampling_distribution=Gumbel_Distribution,
+                                                                  Generator_logits=Generated_Logits, device=args.device,
+                                                                  masked_tokens=masked_tokens,
+                                                                  masking_indices=masked_lists, labels=seq_tokens)
+            Disc_logits = Discriminator(Generated_tokens)
+            D_Loss = criterion_D(Disc_logits, Disc_labels)
 
             loss = G_LOSS + args.d_loss_weight * D_Loss
 
             loss.backward()
             optimizer.step()
-            with torch.no_grad():
-                losses["NSP_train_loss"] += loss_cls.item()
-                losses["Masked_LM_train_loss"] += loss_lm.item()
-                losses["Iteration_cnt"] += 1
-    #
-    #     if args.verbose_period % epoch == 0:
-    #         LM_LOSS, NSP_LOSS, accum_iter = losses["Masked_LM_train_loss"], losses["NSP_train_loss"], losses["Iteration_cnt"]
-    #         print(f"EPOCH : {epoch} / {args.epochs}, TRAIN_LM_LOSS : {LM_LOSS / accum_iter}, TRAIN_NSP_LOSS : {NSP_LOSS / accum_iter}")
 
-    """
-    ------------------------------------------
-    | GLUE Evaluation Code Line 필요 (For HPO) |
-    ------------------------------------------
-    """
+            """
+            -------------------------
+            |     Logger 추가 예정     |
+            -------------------------
+            """
 
 
 if __name__ == "__main__":

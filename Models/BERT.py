@@ -30,6 +30,7 @@ class BERT(nn.Module):
 
         self.linear = nn.Linear(config.d_hidn, config.d_hidn)
         self.activation = torch.tanh
+        # (bs, n_enc_seq, d_hidn)
 
     def forward(self, inputs):
         # (bs, n_seq, d_hidn), [(bs, n_head, n_enc_seq, n_enc_seq)]
@@ -54,40 +55,19 @@ class BERT(nn.Module):
         return save["epoch"], save["loss"]
 
 
-class BERTPretrain(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.config = config
-        self.bert = BERT(self.config)
-        # classfier
-        self.projection_cls = nn.Linear(self.config.d_hidn, 2, bias=False)
-        # lm
-        self.projection_lm = nn.Linear(self.config.d_hidn, self.config.n_enc_vocab, bias=False)
-        self.projection_lm.weight = self.bert.encoder.enc_emb.weight
-
-    def forward(self, inputs, segments):
-        # (bs, n_enc_seq, d_hidn), (bs, d_hidn), [(bs, n_head, n_enc_seq, n_enc_seq)]
-        outputs, outputs_cls, attn_probs = self.bert(inputs, segments)
-        # (bs, 2)
-        logits_cls = self.projection_cls(outputs_cls)
-        # (bs, n_enc_seq, n_enc_vocab)
-        logits_lm = self.projection_lm(outputs)
-        # (bs, n_enc_vocab), (bs, n_enc_seq, n_enc_vocab), [(bs, n_head, n_enc_seq, n_enc_seq)]
-        return logits_cls, logits_lm, attn_probs
-
-
 class ELECTRA_DISCRIMINATOR(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.bert = BERT(config)
         self.discriminator = nn.Linear(config.d_hidn, 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, inputs):
         # (bs, n_enc_seq, d_hidn), (bs, d_hidn), [(bs, n_head, n_enc_seq, n_enc_seq)]
         outputs, outputs_cls, attn_probs = self.bert(inputs)
         # (bs, 2)
         cls_logit = self.discriminator(outputs)
-
+        cls_logit = self.sigmoid(cls_logit)
         return cls_logit, attn_probs
 
 
@@ -95,7 +75,7 @@ class ELECTRA_GENERATOR(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.bert = BERT(config)
-        self.language_model = nn.Linear(config.d_hidn, config.n_enc_vocab, bias=False)
+        self.language_model = nn.Linear(config.d_hidn, config.n_enc_vocab, bias=True)
         """
         Example.)
         입력 Sentence
@@ -107,10 +87,16 @@ class ELECTRA_GENERATOR(nn.Module):
           - 이 때, Generator 로부터 샘플링
         Generator 는 masked 된 곳의 token 을 Prediction (log from)
         """
-    def forward(self, inputs, segments):
-        outputs, outputs_cls, attn_probs = self.bert(inputs, segments)
+    def forward(self, inputs):
+        outputs, outputs_cls, attn_probs = self.bert(inputs)
         lm_outs = self.language_model(outputs)
+        # (BS, n_enc_seq, n_enc_vocab)
         return lm_outs
+
+
+def weight_sync(src_model, tgt_model):
+    tgt_model.encoder.enc_emb.weight = src_model.encoder.enc_emb.weight
+    tgt_model.encoder.pos_emb.weight = src_model.encoder.pos_emb.weight
 
 
 # cfg = Config({"n_enc_vocab": 30522,

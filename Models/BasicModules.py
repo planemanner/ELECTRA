@@ -80,8 +80,10 @@ class PoswiseFeedForwardNet(nn.Module):
         super().__init__()
         self.config = config
 
-        self.conv1 = nn.Conv1d(in_channels=self.config.d_hidn, out_channels=self.config.d_ff, kernel_size=1)
-        self.conv2 = nn.Conv1d(in_channels=self.config.d_ff, out_channels=self.config.d_hidn, kernel_size=1)
+        self.conv1 = nn.Conv1d(in_channels=self.config.d_head,
+                               out_channels=self.config.n_head * self.config.d_head, kernel_size=1)
+        self.conv2 = nn.Conv1d(in_channels=self.config.n_head * self.config.d_head,
+                               out_channels=self.config.d_head, kernel_size=1)
         self.active = F.gelu
         self.dropout = nn.Dropout(config.dropout)
 
@@ -160,7 +162,7 @@ class Config(dict):
     "n_enc_seq": 128,
     "n_seg_type": 2,
     "n_layer": 6,
-    "d_hidn": 256,
+    "d_hidn": 128,
     "i_pad": 0,
     "d_ff": 1024,
     "n_head": 12,
@@ -189,7 +191,3 @@ def get_attn_decoder_mask(seq):
     subsequent_mask = torch.ones_like(seq).unsqueeze(-1).expand(seq.size(0), seq.size(1), seq.size(1))
     subsequent_mask = subsequent_mask.triu(diagonal=1)  # upper triangular part of a matrix(2-D)
     return subsequent_mask
-
-"""
-http://hyundai-main.hunet.co.kr
-"""
