@@ -33,7 +33,10 @@ txt format dataset. The converted dataset must be aligned sentence by sentence b
 # Curruent Status
   - Pretraining code construction is settled...
   - To do update for fine-tuning processes.
-
+# To do
+  - logger
+  - pretraining validation
+  - fine-tuning
 # Miscellaneous
   - Though the ELECTRA paper's author described that they didn't back-propagate the discriminator loss 
     through the generator due to sampling step, actually, we can back-propagate by using gumbel softmax.
