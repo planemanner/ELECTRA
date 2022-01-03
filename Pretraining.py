@@ -6,6 +6,8 @@ from Models.BERT import ELECTRA_GENERATOR, ELECTRA_DISCRIMINATOR, weight_sync
 import argparse
 from transformers import AutoTokenizer
 import random
+from torch.utils.tensorboard import SummaryWriter
+import os
 
 """
 BERT 는 Transformer 의 Encoder 만 사용함.
@@ -70,6 +72,17 @@ generated[is_mlm_applied] = pred_tokens # (B,L) 그 위치에 복사 붙여넣
 is_replaced = is_mlm_applied.clone() # (B,L)
 is_replaced[is_mlm_applied] = (pred_tokens != labels[is_mlm_applied]) # (B,L) label 의 값은 0 또는 1
 """
+
+
+def model_save(model, optimizer, root_dir, cur_iter):
+    save_path = os.path.join(root_dir, f"ITER_{str(cur_iter).zfill(6)}_LM_MODEL.pth")
+    torch.save(
+        {'state_dict': model.state_dict(),
+         'optimizer': optimizer.state_dict(),
+         },
+        save_path
+    )
+    print(f"\n Trained model is saved at {save_path} \n")
 
 
 def sampler(Dist, logits, device):
@@ -147,13 +160,8 @@ def pretrain(args):
 
     weight_sync(Generator.bert, Discriminator.bert)
 
-    D_Loss_Weight = args.d_loss_weight
     criterion_D = torch.nn.BCEWithLogitsLoss()
     criterion_G = torch.nn.CrossEntropyLoss()
-
-    losses = {"Generator Loss": 0.0,
-              "Discriminator Loss": 0.0,
-              "Iteration_cnt": 0}
 
     optimizer = torch.optim.Adam([{'params': Generator.parameters()},
                                   {'params': Discriminator.parameters()}],
@@ -162,21 +170,20 @@ def pretrain(args):
                                  eps=args.Adam_eps)
 
     train_dataset = LM_dataset(d_path=args.train_data_path)
-    val_dataset = LM_dataset(d_path=args.val_data_path)
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
 
     collater = LM_collater(tokenizer)
 
     train_loader = DataLoader(dataset=train_dataset, batch_size=args.batch_size,
                               shuffle=True, collate_fn=collater)
-    val_loader = DataLoader(dataset=val_dataset, batch_size=args.batch_size,
-                            shuffle=True, collate_fn=collater)
 
-    """
-    Generator and Discriminator are jointly trained
-    """
-    for epoch in range(args.epochs):
+    Logger = SummaryWriter(log_dir=args.log_dir)
+    Train_iter_cnt = 0
+    max_epoch = int(args.total_iteration / len(train_loader))
+    for epoch in range(max_epoch):
         for i, seq_tokens in enumerate(train_loader):
+            Generator.train()
+            Discriminator.train()
             """
             Data 에서 return 해줬으면 하는 형태는
             input-token-ids, masked-token-ids, segments ids
@@ -188,7 +195,7 @@ def pretrain(args):
             Generated_Logits = Generator(masked_tokens)
 
             # seq_tokens 도 masked 된 애들만 살려야 함
-            G_LOSS = criterion_G(Generated_Logits.view(-1, cfg.n_enc_vocab), seq_tokens.view(-1))
+            G_LOSS = criterion_G(Generated_Logits[masked_lists].view(-1, cfg.n_enc_vocab), seq_tokens[masked_lists].view(-1))
             # 반면에 Discriminator 는 전체를 봄
             with torch.no_grad():
                 Generated_tokens, Disc_labels = mask_token_filler(sampling_distribution=Gumbel_Distribution,
@@ -203,11 +210,21 @@ def pretrain(args):
             loss.backward()
             optimizer.step()
 
-            """
-            -------------------------------------
-            |       Logger 및 validation 추가      |
-            -------------------------------------
-            """
+            with torch.no_grad():
+                Logger.add_scalar(tag="G_Loss / Train",
+                                  scalar_value=G_LOSS.item(),
+                                  global_step=Train_iter_cnt)
+                Logger.add_scalar(tag="D_Loss / Train",
+                                  scalar_value=D_Loss.item(),
+                                  global_step=Train_iter_cnt)
+
+            Train_iter_cnt += 1
+
+            if args.save_period % (Train_iter_cnt+1) == 0:
+                model_save(model=Discriminator, optimizer=optimizer, root_dir=args.model_save, cur_iter=Train_iter_cnt)
+            if args.verbose_period % (Train_iter_cnt + 1) == 0:
+                with torch.no_grad():
+                    print(f"ITER : {str(Train_iter_cnt).zfill(6)}, G_LOSS : {G_LOSS.item()}, D_LOSS : {D_Loss.item()}")
 
 
 if __name__ == "__main__":
@@ -218,9 +235,13 @@ if __name__ == "__main__":
     parser.add_argument("--d_loss_weight", type=float, default=50)
     parser.add_argument("--Adam_eps", type=float, default=1e-6)
     parser.add_argument("--warm_up_steps", type=int, default=1e4, help="Based on iteration")
-    parser.add_argument("--total_iteration", type=int, default=1e6)
+    parser.add_argument("--total_iteration", type=int, default=1000000)
     parser.add_argument("--train_data_path", type=str, default="")
-    parser.add_argument("--val_data_path", type=str, default="")
     parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--log_dir", type=str, default="./logs")
+    parser.add_argument("--model_save", type=str, default="./check_points")
+    parser.add_argument("--save_period", type=int, default=1000)
+    parser.add_argument("--verbose_period", type=int, default=200)
+
     args = parser.parse_args()
     pretrain(args)
