@@ -5,7 +5,7 @@ from data_related.utils import Config
 
 """
 # Configuration
-  - BERT-SMALL : 
+  - ELECTRA-SMALL : 
   {
       "number-of-layers" : 12,
       "hidden-size" : 256,

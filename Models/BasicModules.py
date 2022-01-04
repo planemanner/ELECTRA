@@ -156,9 +156,9 @@ class Config(dict):
     __getattr__ = dict.__getitem__
     __setattr__ = dict.__setitem__
     """
-    Default configuration for BERT
+    Default configuration for ELECTRA
     config = Config({
-    "n_enc_vocab": len(vocab),  # 30522 is the vocab size of BERT
+    "n_enc_vocab": len(vocab),  # 30522 is the vocab size of ELECTRA
     "n_enc_seq": 128,
     "n_seg_type": 2,
     "n_layer": 6,

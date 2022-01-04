@@ -1,6 +1,11 @@
 import torch
 import numpy as np
 
-"""
-This script will be updated for GLUE BENCHMARK.
-"""
+
+def fine_tuner(task, pretrained_model, dataset):
+    """
+    :param task:
+    :param pretrained_model:
+    :param dataset:
+    :return:
+    """

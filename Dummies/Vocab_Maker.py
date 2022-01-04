@@ -33,7 +33,7 @@ def vocab_making(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--root_dir", type=str, default="/Users/hmc/Desktop/NLP_DATA")
-    parser.add_argument("--save_dir", type=str, default="/Users/hmc/Desktop/projects/BERT")
+    parser.add_argument("--save_dir", type=str, default="/Users/hmc/Desktop/projects/ELECTRA")
 
     args = parser.parse_args()
     vocab_making(args)
