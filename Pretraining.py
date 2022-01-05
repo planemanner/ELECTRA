@@ -10,69 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 from itertools import chain
 import numpy as np
-"""
-ELECTRA 는 Transformer 의 Encoder 만 사용함.
-ELECTRA 사전학습을 위한 기본 Task 는 2가지
-MLM (Masked Language Model)
- Masking 이 된 부분의 단어를 예측하는 Task
- 전체 단어 중 15 % 를 선택하고, 15 % 의 단어 중 80 %는 Masking 10 % 는 현재 단어 유지 나머지 10 % 는 
- 임의의 단어로 대체
-NSP (Next Sentence Prediction)
- CLS Token 으로 문장 A와 B의 관계를 예측하는 것
- ex) A 다음 문장이 B가 맞다면 True 틀리면 False
 
-PreSet
-VOCAB 만들어야 함
-- Pretraining hyperparameters
-Architecture type     | Small | Base | Large
---------------------------------------------
-Number of layers      | 12    | 12   |  24
-Hidden Size           | 256   | 768  |  1024
-FFN inner hidden size | 1024  | 3072 |  4096
-Attention heads       |  4    |  12  |   16
-Attention head size   |  64   |  64  |   64
-Embedding Size        |  128  |  768 |  1024
-Generator Size        |  1/4  |  1/3 |   1/4
- (multiplier for hidden-size, FFN-size, and num-attention-heads)
-Mask percent          |  15   |  15  | 25
-Lr decay type         |Linear |Linear|Linear
-Warmup steps          | 1e4   | 1e4  | 1e4
-Learning Rate         | 5e-4  | 2e-4 | 2e-4
-Adam eps              | 1e-6  | 1e-6 | 1e-6
-Adam β1               | 0.9   | 0.9  | 0.9
-Adam β2               | 0.999 |0.999 |0.999
-Attention Dropout     | 0.1   | 0.1  | 0.1
-Dropout               | 0.1   | 0.1  | 0.1
-Weight Decay          | 0.01  | 0.01 | 0.01
-Batch Size            | 128   | 256  | 2048
-Train Steps (ELECTRA) | 1M    | 766K | 400K
---------------------------------------------
-Hyperparameter GLUE Value
-Learning Rate 3e-4 for Small, 1e-4 for Base, 5e-5 for Large
-Adam eps 1e-6
-Adam β1 0.9
-Adam β2 0.999
-Layerwise LR decay | 0.8 for Base/Small | 0.9 for Large
-Lr decay type | Linear
-Warmup fraction | 0.1
-Attention Dropout | 0.1
-Dropout | 0.1
-Weight Decay | 0
-Batch Size | 32
-Train Epochs | 10 for RTE and STS | 2 for SQuAD | 3 for other tasks
-"""
-
-"""
-Masked Output Decoding & Creating Discriminator labels
-
-pred_tokens = self.sample(mlm_gen_logits) # ( #mlm_positions, )
-# produce inputs for discriminator
-generated = masked_inputs.clone() # (B,L) mask 가 포함된 token 을 가져오고
-generated[is_mlm_applied] = pred_tokens # (B,L) 그 위치에 복사 붙여넣 
-# produce labels for discriminator
-is_replaced = is_mlm_applied.clone() # (B,L)
-is_replaced[is_mlm_applied] = (pred_tokens != labels[is_mlm_applied]) # (B,L) label 의 값은 0 또는 1
-"""
 
 def g_loss(criterion, g_logits, masked_lists, labels):
     """
@@ -173,15 +111,16 @@ def batch_wise_masking(tokens, mask_ratio=0.163):
 
 
 def pretrain(args):
+    # d_hidn=d_head*n_head
     cfg = Config({"n_enc_vocab": 30522,  # correct
                   "n_enc_seq": 512,  # correct
                   "n_seg_type": 2,
                   "n_layer": 12,
-                  "d_hidn": 64,  # correct
+                  "d_hidn": 128,  # correct
                   "i_pad": 0,
                   "d_ff": 256,
                   "n_head": 4,
-                  "d_head": 64,
+                  "d_head": 16,
                   "dropout": 0.1,
                   "layer_norm_epsilon": 1e-12
                   })
@@ -190,6 +129,7 @@ def pretrain(args):
     Gumbel_Distribution = torch.distributions.gumbel.Gumbel(0, 1)
 
     Generator = ELECTRA_GENERATOR(config=cfg).to(args.device)
+    print(Generator)
     Discriminator = ELECTRA_DISCRIMINATOR(config=cfg).to(args.device)
 
     weight_sync(Generator.bert, Discriminator.bert)
@@ -269,9 +209,9 @@ def pretrain(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lr", type=float, default=5e-4)
-    parser.add_argument("--batch_size", type=int, default=32, help="Batch Size")
-    parser.add_argument("--wd", type=float, default=1e-2, help="weight decay")
+    parser.add_argument("--lr", type=float, default=1.875e-4)  # for 128 batch, 5e-4
+    parser.add_argument("--batch_size", type=int, default=48, help="Batch Size")
+    parser.add_argument("--wd", type=float, default=2.5e-2, help="weight decay")  # for 128 batch, 1e-2
     parser.add_argument("--d_loss_weight", type=float, default=50)
     parser.add_argument("--Adam_eps", type=float, default=1e-6)
     parser.add_argument("--warm_up_steps", type=int, default=1e4, help="Based on iteration")
