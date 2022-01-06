@@ -56,7 +56,7 @@ def demo(args):
         recon_and_sample = tokenizer.decode(Generated_tokens)
         print(f"Sampled Sequence : {recon_and_sample}")
 
-        
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--weight_path", type=str, default="")
