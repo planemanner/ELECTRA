@@ -4,6 +4,14 @@ import argparse
 from Models.BERT import ELECTRA_DISCRIMINATOR
 from data_related.utils import Config
 import os
+from torch import nn
+
+
+class Downstream_wrapper(nn.Module):
+    def __init__(self, downstream_backbone, task):
+        super(Downstream_wrapper, self).__init__()
+        self.backbone = downstream_backbone
+        self.task = task
 
 
 def fine_tuner(args):
@@ -26,6 +34,7 @@ def fine_tuner(args):
     pretrain_checkpoint = torch.load(args.pretrained_model_weight_path)
     ED.load_state_dict(pretrain_checkpoint["state_dict"])
     ED.to(args.device)
+
     Downstream_Backbone = ED.bert
 
 
