@@ -28,20 +28,20 @@ class LM_collater:
 
         return torch.as_tensor(data=dict_info["input_ids"], dtype=torch.long)
 
-
-data_path = os.path.join("/Users/hmc/Desktop/NLP_DATA", "merged_lm.txt")
-train_db = LM_dataset(d_path=data_path)
-tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-collater = LM_collater(tokenizer=tokenizer)
-train_loder = DataLoader(dataset=train_db, batch_size=128,
-                         shuffle=True, num_workers=8, collate_fn=collater)
-
-os.environ["TOKENIZERS_PARALLELISM"] = "true"
-for _data in train_loder:
-    tokenized_data = _data
-    print(f"data shape : {len(tokenized_data)}")
-    print(f"data sample : {tokenized_data[0]}")
-    print(f"data type : {type(tokenized_data[0])}")
-
-    debug = 0
+#
+# data_path = os.path.join("/Users/hmc/Desktop/NLP_DATA", "merged_lm.txt")
+# train_db = LM_dataset(d_path=data_path)
+# tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+# collater = LM_collater(tokenizer=tokenizer)
+# train_loder = DataLoader(dataset=train_db, batch_size=128,
+#                          shuffle=True, num_workers=8, collate_fn=collater)
+#
+# os.environ["TOKENIZERS_PARALLELISM"] = "true"
+# for _data in train_loder:
+#     tokenized_data = _data
+#     print(f"data shape : {len(tokenized_data)}")
+#     print(f"data sample : {tokenized_data[0]}")
+#     print(f"data type : {type(tokenized_data[0])}")
+#
+#     debug = 0
 

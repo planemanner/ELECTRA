@@ -56,8 +56,7 @@ class MultiHeadAttention(nn.Module):
     def forward(self, Q, K, V, attn_mask):
         batch_size = Q.size(0)
         # (bs, n_head, n_q_seq, d_head)
-
-        # 32, 41, 128(d_hidn) -> 32, 41, 4, 32 즉, d_hidn=d_head*n_head
+        
         q_s = self.W_Q(Q).view(batch_size, -1, self.config.n_head, self.config.d_head).transpose(1, 2)
         # (bs, n_head, n_k_seq, d_head)
         k_s = self.W_K(K).view(batch_size, -1, self.config.n_head, self.config.d_head).transpose(1, 2)
@@ -66,7 +65,6 @@ class MultiHeadAttention(nn.Module):
 
         # (bs, n_head, n_q_seq, n_k_seq)
         attn_mask = attn_mask.unsqueeze(1).repeat(1, self.config.n_head, 1, 1)
-        # Target sizes: [32, 4, 128, 128].  Tensor sizes: [32, 4, 512, 512]
         
         # (bs, n_head, n_q_seq, d_head), (bs, n_head, n_q_seq, n_k_seq)
         context, attn_prob = self.scaled_dot_attn(q_s, k_s, v_s, attn_mask)

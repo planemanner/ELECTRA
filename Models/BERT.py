@@ -1,6 +1,6 @@
 from torch import nn
 import torch
-from BasicModules import Encoder
+from .BasicModules import Encoder
 from data_related.utils import Config
 
 """
