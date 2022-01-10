@@ -83,15 +83,15 @@ class FINE_TUNE_DATASET(Dataset):
 
         elif self.task == "MRPC":
             label, sentence1_id, sentence2_id, sentence_1, sentence_2 = self.data[idx]
-            return sentence_1, sentence_2, label
+            return sentence_1 + "[SEP]" + sentence_2, label
 
         elif self.task == "QQP":
             _, _, _, question_1, question_2, label = self.data[idx]  # 0 : not similar, 1: similar
-            return question_1, question_2, label
+            return question_1 + "[SEP]" + question_2, label
 
         elif self.task == "STS-B":
             sentence_1, sentence_2, similarity = self.data[idx][-3], self.data[idx][-2], self.data[idx][-1]
-            return sentence_1, sentence_2, similarity
+            return sentence_1 + "[SEP]" + sentence_2, similarity
 
         elif self.task == "MNLI":
             """
@@ -107,7 +107,7 @@ class FINE_TUNE_DATASET(Dataset):
                 long_type_label = 1
             else:
                 long_type_label = 2
-            return sentence_1, sentence_2, long_type_label
+            return sentence_1 + "[SEP]" + sentence_2, long_type_label
 
         elif self.task == "QNLI":
             """
@@ -120,7 +120,7 @@ class FINE_TUNE_DATASET(Dataset):
                 long_type_label = 1
             else:
                 long_type_label = 0
-            return question, answer, long_type_label
+            return question + "[SEP]" + answer, long_type_label
 
         elif self.task == "RTE":
             """
@@ -133,11 +133,11 @@ class FINE_TUNE_DATASET(Dataset):
                 long_type_label = 1
             else:
                 long_type_label = 0
-            return question, answer, long_type_label
+            return question + "[SEP]" + answer, long_type_label
 
         elif self.task == "WNLI":
             information, query, label = self.data[idx][1], self.data[idx][2], self.data[idx][3]
-            return information, query, label
+            return information + "[SEP]" + query, label
         else:
             raise Exception("Please check the dataset name")
 
@@ -146,24 +146,15 @@ class FINE_TUNE_DATASET(Dataset):
 
 
 class FINE_TUNE_COLLATOR:
-    def __init__(self, tokenizer, task):
+    def __init__(self, tokenizer):
         self.tokenizer = tokenizer
-        self.task = task
 
     def __call__(self, batch):
-        if self.task in ["CoLA", "SST-2"]:
-            sentences, labels = batch
-            dict_info = self.tokenizer(sentences, padding=True, truncation=True)
-            return torch.as_tensor(data=dict_info["input_ids"], dtype=torch.long), torch.as_tensor(labels, dtype=torch.long)
-        else:
-            sentences_1, sentences_2, labels = batch
-            dict_info_1 = self.tokenizer(sentences_1, padding=True, truncation=True)
-            dict_info_2 = self.tokenizer(sentences_2, padding=True, truncation=True)
-            tk_1 = torch.as_tensor(data=dict_info_1["input_ids"], dtype=torch.long)
-            tk_2 = torch.as_tensor(data=dict_info_2["input_ids"], dtype=torch.long)
-            return tk_1, tk_2, torch.as_tensor(labels, dtype=torch.long)
+        sentences, labels = batch
+        dict_info = self.tokenizer(sentences, padding=True, truncation=True)
+        return torch.as_tensor(data=dict_info["input_ids"], dtype=torch.long), torch.as_tensor(labels, dtype=torch.long)
 
-#
+
 # data_path = os.path.join("/Users/hmc/Desktop/NLP_DATA", "merged_lm.txt")
 # train_db = LM_dataset(d_path=data_path)
 # tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')

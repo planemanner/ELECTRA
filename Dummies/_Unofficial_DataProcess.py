@@ -6,16 +6,17 @@ import csv
 import pandas as pd
 import sys
 
-csv.field_size_limit(sys.maxsize)
+tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
 
-f = open('../msr_paraphrase_train.txt', 'r', encoding='utf-8')
-rdr = csv.reader(f, delimiter='\t')
-r = list(rdr)
-f.close()
+sentence = ["High and High go and way of you [SEP]",
+            "Hey, man what are you doing?",
+            "What the...hell!",
+            "you should do that more and more and more and more.",
+            "What kind of words are remained as naive?"]
 
-for _d in r:
-    print(_d)
-    debug = 0
+tk = tokenizer(sentence, padding=False, truncation=True)
+
+print(tk["input_ids"])
 
 
 # f = open("../msr_paraphrase_train.txt", 'r', encoding='utf-8')

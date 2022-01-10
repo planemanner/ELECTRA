@@ -11,35 +11,54 @@ from data_related.Custom_dataloader import FINE_TUNE_DATASET, FINE_TUNE_COLLATOR
 from torch.utils.data import DataLoader
 
 
-class Evaluation_Metrics:
-    def __init__(self, task):
+class Evaluation:
+    def __init__(self, task, dataloader, logging_dir):
         """
         MatthewCorrCoef : CoLA
         accuracy : SST-2, MNLI, QNLI, RTE, WNLI
         F1 Score : MRPC, QQP
         PearsonCorrCoef, SpearmanCorrCoef : STS-B
         """
+        self.task = task
+        self.dataloader = dataloader
+        self.logging_dir = logging_dir
 
-
-class Loss_func:
-    def __init__(self, task):
+    def evaluation(self):
         """
-        Cross entropy :  SST-2, MNLI, QNLI, RTE, WNLI, MRPC, QQP, CoLA
-        MSE : STS-B
+        --------------
+        | 결과 Plotting|
+        --------------
         """
 
 
 class Downstream_wrapper(nn.Module):
-    def __init__(self, downstream_backbone, task):
+    def __init__(self, downstream_backbone, task, config):
         super(Downstream_wrapper, self).__init__()
         self.backbone = downstream_backbone
         self.task = task
 
-    def _construct_interpreter(self, task):
+        self.drop = nn.Dropout(0.1)
+        # tasks = ["CoLA", "SST-2", "MRPC", "QQP",
+        #  "STS-B", "MNLI", "QNLI", "RTE", "WNLI"]
+        if task in ["CoLA", "SST-2", "MRPC", "QQP", "QNLI", "RTE", "WNLI"]:
+            num_cls = 2
+        elif task in ["STS-B"]:
+            num_cls = 1
+        else:
+            '''MNLI'''
+            num_cls = 3
+
+        self.fc = nn.Linear(config.d_hidn, num_cls)
+
+    def forward(self, inputs):
         """
-        :param task:
+        :param inputs:
         :return:
         """
+        outputs, _, _ = self.backbone(inputs)
+        outputs = self.drop(outputs)
+        outputs = self.fc(outputs)
+        return outputs
 
 
 def fine_tuner(args):
@@ -73,12 +92,12 @@ def fine_tuner(args):
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
 
     downstream_Backbone = ED.bert
-    model = Downstream_wrapper(downstream_backbone=downstream_Backbone, task=args.task)
+    model = Downstream_wrapper(downstream_backbone=downstream_Backbone, task=args.task, config=cfg)
 
     train_set = FINE_TUNE_DATASET(task=args.task, mode='train', root_dir=args.data_root_dir)
     test_set = FINE_TUNE_DATASET(task=args.task, mode='test', root_dir=args.data_root_dir)
 
-    collator_fn = FINE_TUNE_COLLATOR(tokenizer=tokenizer, task=args.task)
+    collator_fn = FINE_TUNE_COLLATOR(tokenizer=tokenizer)
 
     Train_loader = DataLoader(dataset=train_set, batch_size=args.batch_size,
                               shuffle=True, num_workers=args.num_workers, collate_fn=collator_fn)
@@ -88,25 +107,31 @@ def fine_tuner(args):
 
     optimizer = torch.optim.Adam(lr=args.lr, params=model.parameters(), weight_decay=args.weight_decay)
 
-    criterion = Loss_func(task=args.task)
+    loss_func = nn.MSELoss() if args.task == "STS-B" else nn.CrossEntropyLoss()
+    Evaluator = Evaluation(task=args.task, dataloader=Test_loader)
 
-    for epoch in range(args.epoch):
-        for data in Train_loader:
-            if args.task in ["CoLA", "SST-2"]:
-                sentences, labels = data
-                sentences, labels = sentences.to(args.device), labels.to(args.device)
-            else:
-                sentences_1, sentences_2, labels = data
-                sentences_1, sentences_2, labels = sentences_1.to(args.device), sentences_2.to(args.device), labels.to(args.device)
-
+    for epoch in range(args.epochs):
+        for idx, data in enumerate(Train_loader):
+            sentences, labels = data  # two sentences are grafted with [SEP].
+            sentences, labels = sentences.to(args.device), labels.to(args.device)
             optimizer.zero_grad()
+
+            outputs = model(sentences)
+            loss = loss_func(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            print(f"{epoch} / {args.epochs}, {idx+1} / {Train_loader.__len__()}, Train Loss : {loss.item()}")
+
+        if (epoch + 1) % args.eval_period == 0:
+            Evaluator.evaluation()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--pretrained_model_weight_path", type=str, default="")
-    parser.add_argument("--task", type=str, default="CoLA", choices=["CoLA", "SST-2", "MRPC", "QQP",
-                                                                     "STS-B", "MNLI", "QNLI", "RTE", "WNLI"])
+    parser.add_argument("--task", type=str, default="CoLA",
+                        choices=["CoLA", "SST-2", "MRPC", "QQP", "STS-B", "MNLI", "QNLI", "RTE", "WNLI"])
     parser.add_argument("--data_root_dir", type=str, default="")
     parser.add_argument("--pretrained_model_weight_path", type=str, default="")
     parser.add_argument("--device", type=str, default="cuda:0")
@@ -118,6 +143,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=1e-2)
+    parser.add_argument("--epochs", type=int, default=12)
 
     args = parser.parse_args()
     fine_tuner(args)
