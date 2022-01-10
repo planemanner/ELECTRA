@@ -36,10 +36,10 @@ txt format dataset. The converted dataset must be aligned sentence by sentence b
   - For fine-tuning
     - will be updated
 # Curruent Status
-  - Doing update for fine-tuning processes.
+  - Finetuning dataloader is updated.
+  - Add-on module will be added for downstream task belonging to GLUE benchmark.
 # To do
   - logger
-  - pretraining validation
   - fine-tuning
 # Miscellaneous
   - Though the ELECTRA paper's author described that they didn't back-propagate the discriminator loss 

@@ -187,7 +187,7 @@ def pretrain(args):
             torch.nn.utils.clip_grad_norm_(set(list(Generator.parameters()) + list(Discriminator.parameters())), 1)
             loss.backward()
             optimizer.step()
-
+            torch.cuda.empty_cache()
             with torch.no_grad():
                 Logger.add_scalar(tag="G_Loss / Train",
                                   scalar_value=G_LOSS.item(),

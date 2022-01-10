@@ -25,45 +25,6 @@ Inference Tasks
     RTE  - The Recognizing Textual Entailment (RTE) datasets come from a series of annual textual entailment challenges. The task is to determine whether the second sentence is the entailment of the first one or not.
     WNLI - The Winograd Schema Challenge is a reading comprehension task in which a system must read a sentence with a pronoun and select the referent of that pronoun from a list of choices (Hector Levesque, Ernest Davis, and Leora Morgenstern. The winograd schema challenge. In Thirteenth International Conference on the Principles of Knowledge Representation and Reasoning. 2012).
 
-Preprocessing
-Step 1. 아래 5가지의 특수 Token 을 고려하자. 보통 01234 로 선정.
-그리고 특수문자는 정규식을 이용해 모두 필터링해서 없앤다. 
- - ex code) 
-   sentences = re.sub("[.,!?\\-]", '', text.lower()).split('\n')  # filter '.', ',', '?', '!'
-   word_list = list(set(" ".join(sentences).split()))
-[CLS]
-
-The first token is always classification
-
-[SEP]
-
-Separates two sentences
-
-[END]
-
-End the sentence.
-
-[PAD]
-
-Use to truncate the sentence with equal length.
-
-[MASK]
-
-Use to create a mask by replacing the original word.
-
-Step 2. 그 다음 3가지 Token embedding 이 필요함.
-  a. token embedding : 말 그대로 tokenized sentence 를 embedding 된 code 로 사상
-  b. segment embedding : 문장 분할 (A 문장인지 B 문장에 속하는 지 구분하는 embedded code)
-  c. position embedding : 말 그대로, 위치에 대한 정보를 Embedding  
-  EX)
-  INPUT | [CLS] my dog is cute [SEP] he likes play ##ing [SEP]
-  Token | E_CLS E_1 E_2 E_3 E_4 E_SEP ... 
-  Seg   | E_A        ...       E_A E_B ...                E_B 
-  Pos   | E_0 E_1 E_2 ...                                 E_10
-  
-Step 3. Masking. 대부분의 Task 는 15 % 를 Masking 하고 수행
-Note : Special token 들에 대해서는 masking 을 하면 안됨!
-
 """
 
 
@@ -364,8 +325,8 @@ class MRPC(CsvDataset):
         super().__init__(file, pipeline)
 
     def get_instances(self, lines):
-        for line in itertools.islice(lines, 1, None): # skip header
-            yield line[0], line[3], line[4] # label, text_a, text_b
+        for line in itertools.islice(lines, 1, None):  # skip header
+            yield line[0], line[3], line[4]  # label, text_a, text_b
 
 
 class MNLI(CsvDataset):
@@ -376,7 +337,7 @@ class MNLI(CsvDataset):
 
     def get_instances(self, lines):
         for line in itertools.islice(lines, 1, None): # skip header
-            yield line[-1], line[8], line[9] # label, text_a, text_b
+            yield line[-1], line[8], line[9]  # label, text_a, text_b
 
 
 def dataset_class(task):
@@ -458,16 +419,3 @@ class TokenIndexing(Pipeline):
         input_mask.extend([0]*n_pad)
 
         return input_ids, segment_ids, input_mask, label_id
-
-
-# vocab = None  -> ./vocab.txt
-# task = None -> GLUE 내 Task
-# max_len = 5 -> default 128
-# tokenizer = FullTokenizer(vocab_file=vocab, do_lower_case=True)
-# TaskDataset = dataset_class(task) # task dataset class according to the task
-# pipeline = [Tokenizing(tokenizer.convert_to_unicode, tokenizer.tokenize),
-#             AddSpecialTokensWithTruncation(max_len),
-#             TokenIndexing(convert_tokens_to_ids,
-#                           TaskDataset.labels, max_len)]
-# dataset = TaskDataset(data_file, pipeline)
-# data_iter = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True)
