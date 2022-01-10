@@ -88,11 +88,11 @@ def fine_tuner(args):
     ED = ELECTRA_DISCRIMINATOR(config=cfg)
     pretrain_checkpoint = torch.load(args.pretrained_model_weight_path)
     ED.load_state_dict(pretrain_checkpoint["state_dict"])
-    ED.to(args.device)
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
 
     downstream_Backbone = ED.bert
     model = Downstream_wrapper(downstream_backbone=downstream_Backbone, task=args.task, config=cfg)
+    model = model.to(args.device)
 
     train_set = FINE_TUNE_DATASET(task=args.task, mode='train', root_dir=args.data_root_dir)
     test_set = FINE_TUNE_DATASET(task=args.task, mode='test', root_dir=args.data_root_dir)
