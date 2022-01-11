@@ -1,6 +1,9 @@
 from torch.utils.data import DataLoader
+from transformers import ElectraModel, ElectraConfig
 
-
+configuration = ElectraConfig()
+model = ElectraModel(configuration)
+print(model)
 """
 ElectraForMaskedLM(
   (electra): ElectraModel(
@@ -294,8 +297,8 @@ ElectraForMaskedLM(
     )
   )
   (generator_predictions): ElectraGeneratorPredictions(
-    (LayerNorm): LayerNorm((128,), eps=1e-05, elementwise_affine=True)
     (dense): Linear(in_features=64, out_features=128, bias=True)
+    (LayerNorm): LayerNorm((128,), eps=1e-05, elementwise_affine=True)
   )
   (generator_lm_head): Linear(in_features=128, out_features=30522, bias=True)
 )

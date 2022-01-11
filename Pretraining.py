@@ -8,8 +8,14 @@ from transformers import AutoTokenizer
 import random
 from torch.utils.tensorboard import SummaryWriter
 import os
-from itertools import chain
-import numpy as np
+
+
+def GPU_MEMORY_CHECK(status):
+    t = torch.cuda.get_device_properties(0).total_memory
+    r = torch.cuda.memory_reserved(0)
+    a = torch.cuda.memory_allocated(0)
+    f = r-a  # free inside reserved
+    print(f"Current status : {status}, Allocated memory : {a} / {t} \n Reserved memory : {f} / {t} \n")
 
 
 def g_loss(criterion, g_logits, masked_lists, labels):
@@ -41,8 +47,8 @@ def lr_decay(optimizer, init_lr, cur_iter, max_iter):
     optimizer.param_groups[0]['lr'] = decayed_lr
 
 
-def model_save(model, optimizer, root_dir, cur_iter):
-    save_path = os.path.join(root_dir, f"ITER_{str(cur_iter).zfill(6)}_LM_MODEL.pth")
+def model_save(model, optimizer, root_dir, cur_iter, model_type):
+    save_path = os.path.join(root_dir, f"{model_type}_ITER_{str(cur_iter+1).zfill(6)}_LM_MODEL.pth")
     torch.save(
         {'state_dict': model.state_dict(),
          'optimizer': optimizer.state_dict(),
@@ -112,25 +118,38 @@ def batch_wise_masking(tokens, mask_ratio=0.163):
 
 def pretrain(args):
     # d_hidn=d_head*n_head
-    cfg = Config({"n_enc_vocab": 30522,  # correct
-                  "n_enc_seq": 512,  # correct
-                  "n_seg_type": 2,
-                  "n_layer": 12,
-                  "d_hidn": 128,  # correct
-                  "i_pad": 0,
-                  "d_ff": 256,
-                  "n_head": 4,
-                  "d_head": 16,
-                  "dropout": 0.1,
-                  "layer_norm_epsilon": 1e-12
-                  })
+    G_cfg = Config({"n_enc_vocab": 30522,  # correct
+                    "n_enc_seq": 512,  # correct
+                    "n_seg_type": 2,  # correct
+                    "n_layer": 12,  # correct
+                    "d_hidn": 128,  # correct
+                    "i_pad": 0,  # correct
+                    "d_ff": 256,  # correct
+                    "n_head": 4,  # correct
+                    "d_head": 16,  # correct
+                    "dropout": 0.1,  # correct
+                    "layer_norm_epsilon": 1e-12  # correct
+                    })
+
+    D_cfg = Config({"n_enc_vocab": 30522,  # correct
+                    "n_enc_seq": 512,  # correct
+                    "n_seg_type": 2,  # correct
+                    "n_layer": 12,  # correct
+                    "d_hidn": 128,  # correct
+                    "i_pad": 0,  # correct
+                    "d_ff": 1024,  # correct
+                    "n_head": 4,  # correct
+                    "d_head": 64,  # correct
+                    "dropout": 0.1,  # correct
+                    "layer_norm_epsilon": 1e-12  # correct
+                    })
 
     # train_loader = DataLoader(dataset, args.batch_size, shuffle=True, collate_fn=pretrin_collate_fn)
     Gumbel_Distribution = torch.distributions.gumbel.Gumbel(0, 1)
 
-    Generator = ELECTRA_GENERATOR(config=cfg).to(args.device)
-    print(Generator)
-    Discriminator = ELECTRA_DISCRIMINATOR(config=cfg).to(args.device)
+    Generator = ELECTRA_GENERATOR(config=G_cfg)
+
+    Discriminator = ELECTRA_DISCRIMINATOR(config=D_cfg)
 
     weight_sync(Generator.bert, Discriminator.bert)
 
@@ -141,14 +160,23 @@ def pretrain(args):
                                  lr=args.lr,
                                  weight_decay=args.wd,
                                  eps=args.Adam_eps)
+    if args.resume:
+        G_check_point = torch.load(args.G_ckpt_path)
+        D_check_point = torch.load(args.D_ckpt_path)
+        Generator.load_state_dict(G_check_point["state_dict"])
+        Discriminator.load_state_dict(D_check_point["state_dict"])
+        optimizer.load_state_dict(D_check_point["optimizer"])
+
+    Generator = Generator.to(args.device)
+    Discriminator = Discriminator.to(args.device)
 
     train_dataset = LM_dataset(d_path=args.train_data_path)
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
 
-    collater = LM_collater(tokenizer)
+    collator = LM_collater(tokenizer)
 
     train_loader = DataLoader(dataset=train_dataset, batch_size=args.batch_size,
-                              shuffle=True, collate_fn=collater)
+                              shuffle=True, collate_fn=collator)
 
     Logger = SummaryWriter(log_dir=args.log_dir)
     Train_iter_cnt = 0
@@ -156,7 +184,7 @@ def pretrain(args):
     print("Learning start !")
     for epoch in range(100):
         for i, seq_tokens in enumerate(train_loader):
-
+            GPU_MEMORY_CHECK("Start of iteration")
             if Train_iter_cnt < 10000:
                 lr_warmup(optimizer=optimizer, tgt_init_lr=args.lr, cur_iter=Train_iter_cnt)
             else:
@@ -188,6 +216,9 @@ def pretrain(args):
             loss.backward()
             optimizer.step()
             torch.cuda.empty_cache()
+
+            GPU_MEMORY_CHECK("END of iteration")
+
             with torch.no_grad():
                 Logger.add_scalar(tag="G_Loss / Train",
                                   scalar_value=G_LOSS.item(),
@@ -196,16 +227,22 @@ def pretrain(args):
                                   scalar_value=D_Loss.item(),
                                   global_step=Train_iter_cnt)
 
-
             if ((Train_iter_cnt+1) % args.save_period) == 0:
-                print("Start to save a checkpoint....")
-                model_save(model=Discriminator, optimizer=optimizer, root_dir=args.model_save, cur_iter=Train_iter_cnt)
-                print("Done !!!")
+                with torch.no_grad():
+                    print("Start to save a checkpoint....")
+                    model_save(model=Discriminator, optimizer=optimizer,
+                               root_dir=args.model_save, cur_iter=Train_iter_cnt, model_type="DISC")
+                    model_save(model=Generator, optimizer=optimizer,
+                               root_dir=args.model_save, cur_iter=Train_iter_cnt, model_type="GEN")
+                    print("Done !!!")
             if ((Train_iter_cnt + 1) % args.verbose_period) == 0:
                 with torch.no_grad():
                     print(f"ITER : {str(Train_iter_cnt).zfill(6)}, G_LOSS : {G_LOSS.item()}, D_LOSS : {D_Loss.item()}")
                     
             Train_iter_cnt += 1
+
+    Logger.close()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -222,6 +259,11 @@ if __name__ == "__main__":
     parser.add_argument("--model_save", type=str, default="./check_points")
     parser.add_argument("--save_period", type=int, default=10000)
     parser.add_argument("--verbose_period", type=int, default=50)
+    parser.add_argument("--resume", action='store_true')
+    parser.add_argument("--D_ckpt_path", type=str,
+                        default="/vision/7032593/NLP/ELECTRA/check_points/DISC_ITER_375000_LM_MODEL.pth")
+    parser.add_argument("--G_ckpt_path", type=str,
+                        default="/vision/7032593/NLP/ELECTRA/check_points/GEN_ITER_375000_LM_MODEL.pth")
 
     args = parser.parse_args()
     pretrain(args)

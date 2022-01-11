@@ -45,13 +45,15 @@ class MultiHeadAttention(nn.Module):
         super().__init__()
         self.config = config
 
-        self.W_Q = nn.Linear(self.config.d_hidn, self.config.n_head * self.config.d_head)
-        self.W_K = nn.Linear(self.config.d_hidn, self.config.n_head * self.config.d_head)
-        self.W_V = nn.Linear(self.config.d_hidn, self.config.n_head * self.config.d_head)
+        self.W_Q = nn.Linear(self.config.n_head * self.config.d_head, self.config.n_head * self.config.d_head)
+        self.W_K = nn.Linear(self.config.n_head * self.config.d_head, self.config.n_head * self.config.d_head)
+        self.W_V = nn.Linear(self.config.n_head * self.config.d_head, self.config.n_head * self.config.d_head)
 
         self.scaled_dot_attn = ScaledDotProductAttention(self.config)
-        self.linear = nn.Linear(self.config.n_head * self.config.d_head, self.config.d_hidn)
+        self.linear = nn.Linear(config.n_head * config.d_head, config.n_head * config.d_head)
+        self.layer_norm = nn.LayerNorm(config.n_head * config.d_head, eps=self.config.layer_norm_epsilon)
         self.dropout = nn.Dropout(config.dropout)
+        # (bs, n_enc_seq, self.config.n_head * self.config.d_head)
 
     def forward(self, Q, K, V, attn_mask):
         batch_size = Q.size(0)
@@ -72,6 +74,7 @@ class MultiHeadAttention(nn.Module):
         context = context.transpose(1, 2).contiguous().view(batch_size, -1, self.config.n_head * self.config.d_head)
         # (bs, n_head, n_q_seq, e_embd)
         output = self.linear(context)
+        output = self.layer_norm(output)
         output = self.dropout(output)
         # (bs, n_q_seq, d_hidn), (bs, n_head, n_q_seq, n_k_seq)
         return output, attn_prob
@@ -82,10 +85,10 @@ class PoswiseFeedForwardNet(nn.Module):
         super().__init__()
         self.config = config
 
-        self.conv1 = nn.Conv1d(in_channels=self.config.d_hidn,
-                               out_channels=self.config.n_head * self.config.d_head, kernel_size=1)
-        self.conv2 = nn.Conv1d(in_channels=self.config.n_head * self.config.d_head,
-                               out_channels=self.config.d_hidn, kernel_size=1)
+        self.conv1 = nn.Conv1d(in_channels=config.d_head * config.n_head,
+                               out_channels=config.d_ff, kernel_size=1)
+        self.conv2 = nn.Conv1d(in_channels=config.d_ff,
+                               out_channels=config.n_head * config.d_head, kernel_size=1)
         self.active = F.gelu
         self.dropout = nn.Dropout(config.dropout)
 
@@ -106,10 +109,10 @@ class EncoderLayer(nn.Module):
         super().__init__()
         self.config = config
 
-        self.self_attn = MultiHeadAttention(self.config)
-        self.layer_norm1 = nn.LayerNorm(self.config.d_hidn, eps=self.config.layer_norm_epsilon)
-        self.pos_ffn = PoswiseFeedForwardNet(self.config)
-        self.layer_norm2 = nn.LayerNorm(self.config.d_hidn, eps=self.config.layer_norm_epsilon)
+        self.self_attn = MultiHeadAttention(config)
+        self.layer_norm1 = nn.LayerNorm(config.d_head * config.n_head, eps=config.layer_norm_epsilon)
+        self.pos_ffn = PoswiseFeedForwardNet(config)
+        self.layer_norm2 = nn.LayerNorm(config.n_head * config.d_head, eps=config.layer_norm_epsilon)
 
     def forward(self, inputs, attn_mask):
         # (bs, n_enc_seq, d_hidn), (bs, n_head, n_enc_seq, n_enc_seq)
@@ -130,6 +133,8 @@ class Encoder(nn.Module):
         self.enc_emb = nn.Embedding(self.config.n_enc_vocab, self.config.d_hidn)
         self.pos_emb = nn.Embedding(self.config.n_enc_seq + 1, self.config.d_hidn)
 
+        self.embeddings_project = nn.Linear(self.config.d_hidn, self.config.n_head * self.config.d_head)
+
         self.layers = nn.ModuleList([EncoderLayer(self.config) for _ in range(self.config.n_layer)])
 
     def forward(self, inputs):
@@ -137,11 +142,14 @@ class Encoder(nn.Module):
                                  device=inputs.device,
                                  dtype=inputs.dtype).expand(inputs.size(0),
                                                             inputs.size(1)).contiguous() + 1
+
         pos_mask = inputs.eq(self.config.i_pad)
         positions.masked_fill_(pos_mask, 0)
 
         # (bs, n_enc_seq, d_hidn)
         outputs = self.enc_emb(inputs) + self.pos_emb(positions)
+        # (bs, n_enc_seq, self.config.n_head * self.config.d_head)
+        outputs = self.embeddings_project(outputs)
 
         # (bs, n_enc_seq, n_enc_seq)
         attn_mask = get_attn_pad_mask(inputs, inputs, self.config.i_pad)

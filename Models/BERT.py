@@ -28,19 +28,15 @@ class BERT(nn.Module):
 
         self.encoder = Encoder(self.config)
 
-        self.linear = nn.Linear(config.d_hidn, config.d_hidn)
-        self.activation = torch.tanh
         # (bs, n_enc_seq, d_hidn)
 
     def forward(self, inputs):
         # (bs, n_seq, d_hidn), [(bs, n_head, n_enc_seq, n_enc_seq)]
         outputs, self_attn_probs = self.encoder(inputs)
         # (bs, d_hidn)
-        outputs_cls = outputs[:, 0].contiguous()
-        outputs_cls = self.linear(outputs_cls)
-        outputs_cls = self.activation(outputs_cls)
+
         # (bs, n_enc_seq, n_enc_vocab), (bs, d_hidn), [(bs, n_head, n_enc_seq, n_enc_seq)]
-        return outputs, outputs_cls, self_attn_probs
+        return outputs, self_attn_probs
 
     def save(self, epoch, loss, path):
         torch.save({
@@ -59,13 +55,17 @@ class ELECTRA_DISCRIMINATOR(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.bert = BERT(config)
-        self.discriminator = nn.Linear(config.d_hidn, 2, bias=False)
+        self.projector = nn.Linear(config.d_head * config.n_head, config.d_hidn)
+        self.layer_norm = nn.LayerNorm(config.d_hidn, eps=config.layer_norm_epsilon)
+        self.discriminator = nn.Linear(config.d_hidn, 1, bias=False)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, inputs):
         # (bs, n_enc_seq, d_hidn), (bs, d_hidn), [(bs, n_head, n_enc_seq, n_enc_seq)]
-        outputs, outputs_cls, attn_probs = self.bert(inputs)
+        outputs, attn_probs = self.bert(inputs)
         # (bs, 2)
+        outputs = self.projector(outputs)
+        outputs = self.layer_norm(outputs)
         cls_logit = self.discriminator(outputs)
         cls_logit = self.sigmoid(cls_logit)
         return cls_logit, attn_probs
@@ -75,6 +75,8 @@ class ELECTRA_GENERATOR(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.bert = BERT(config)
+        self.projector = nn.Linear(config.d_head * config.n_head, config.d_hidn)
+        self.layer_norm = nn.LayerNorm(config.d_hidn, eps=config.layer_norm_epsilon)
         self.language_model = nn.Linear(config.d_hidn, config.n_enc_vocab, bias=True)
         """
         Example.)
@@ -88,7 +90,9 @@ class ELECTRA_GENERATOR(nn.Module):
         Generator 는 masked 된 곳의 token 을 Prediction (log from)
         """
     def forward(self, inputs):
-        outputs, outputs_cls, attn_probs = self.bert(inputs)
+        outputs, attn_probs = self.bert(inputs)
+        outputs = self.projector(outputs)
+        outputs = self.layer_norm(outputs)
         lm_outs = self.language_model(outputs)
         # (BS, n_enc_seq, n_enc_vocab)
         return lm_outs
