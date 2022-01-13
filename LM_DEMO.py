@@ -31,6 +31,7 @@ def demo(args):
     check_point = torch.load(args.weight_path)
     Model.load_state_dict(check_point["state_dict"])
     Model.to(args.device)
+    Model.eval()
     test_dataset = LM_dataset(d_path=args.test_sequences)
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     collater = LM_collater(tokenizer=tokenizer)
@@ -43,10 +44,11 @@ def demo(args):
         seq_tokens = seq_tokens.to(args.device)
         input_seq = tokenizer.decode(seq_tokens)
         print(f"Input Sequence : {input_seq}")
+        # (BS, n_enc_seq, n_enc_vocab)
         recon_output = Model(seq_tokens)
-        recon_seq = tokenizer.decode(recon_output)
-        print(f"Reconstructed Sequence : {recon_seq}")
-
+        recon_tokens = torch.argmax(recon_output, dim=2)
+        recon_seq = tokenizer.decode(recon_tokens)
+        print(f"Reconstructed sequence : {recon_seq}")
         with torch.no_grad():
             masked_tokens, masked_lists = batch_wise_masking(seq_tokens)
             Generated_tokens, Disc_labels = mask_token_filler(sampling_distribution=Gumbel_Distribution,
