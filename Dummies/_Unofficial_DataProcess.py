@@ -1,22 +1,15 @@
 from matplotlib import pyplot as plt
 
+from transformers import ElectraTokenizer, ElectraForMaskedLM, BertForSequenceClassification
+import torch
+from torchvision import models
 
-def linear_warmup_and_then_decay(pct, lr_max, total_steps, warmup_steps=None, end_lr=0.0, decay_power=1):
-    """ pct (float): fastai count it as ith_step/num_epoch*len(dl), so we can't just use pct when our num_epoch is fake.he ith_step is count from 0, """
-    step_i = round(pct * total_steps)
-    if step_i <= warmup_steps:  # warm up
-        return lr_max * min(1.0, step_i/warmup_steps)
-    else:  # decay
-        return (lr_max-end_lr) * (1 - (step_i-warmup_steps)/(total_steps-warmup_steps)) ** decay_power + end_lr
-
-
-lr_max = 1e-4
-total_steps = 1000000
-warmup_steps = 10000
-lrs = []
-
-for i in range(total_steps):
-    lrs += [linear_warmup_and_then_decay(pct=i/total_steps, lr_max=lr_max, total_steps=total_steps, warmup_steps=warmup_steps)]
-
-plt.plot(range(total_steps), lrs)
-plt.show()
+model = models.resnet18()
+param_groups = []
+model_groups = [model.layer1, model.layer2, model.layer3, model.layer4]
+lrs = [1e-1 * i for i in range(len(model_groups))]
+for idx, lr in enumerate(lrs):
+    param_groups += [{"params": model_groups[idx].parameters(), "lr": lrs[idx]}]
+optimizer = torch.optim.Adam(param_groups)
+for i in range(len(optimizer.param_groups)):
+    print(optimizer.param_groups[i]['lr'])

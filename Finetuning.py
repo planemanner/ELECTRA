@@ -14,9 +14,16 @@ import scipy
 
 
 def lr_scheduling(global_lr, layer_lrs, optimizer):
-    optimizer.param_groups[-1]['lr'] = global_lr
+
+    for i in range(3):
+        '''For enc_emb, pos_emb, and projection layers'''
+        optimizer.param_groups[i]['lr'] = global_lr
+
     for idx, lr in enumerate(layer_lrs):
-        optimizer.param_groups[idx]['lr'] = lr
+        optimizer.param_groups[idx+3]['lr'] = lr
+
+    '''for downstream fc layer'''
+    optimizer.param_groups[-1]['lr'] = global_lr
 
 
 def get_layer_decayed_lrs(lrs, pct, warmup_steps, total_steps):
@@ -26,10 +33,23 @@ def get_layer_decayed_lrs(lrs, pct, warmup_steps, total_steps):
     return layer_lrs
 
 
-def make_param_groups(model, lrs):
+def make_param_groups(model, lrs, global_lr):
     param_groups = []
+    """
+    self.enc_emb = nn.Embedding(self.config.n_enc_vocab, self.config.d_hidn)
+    self.pos_emb = nn.Embedding(self.config.n_enc_seq + 1, self.config.d_hidn)
+
+    self.embeddings_project = nn.Linear(self.config.d_hidn, self.config.n_head * self.config.d_head)
+    """
+    param_groups += [{"params": model.backbone.encoder.enc_emb.parameters(), "lr": global_lr}]
+    param_groups += [{"params": model.backbone.encoder.pos_emb.parameters(), "lr": global_lr}]
+    param_groups += [{"params": model.backbone.encoder.embeddings_project.parameters(), "lr": global_lr}]
+
     for idx, lr in enumerate(lrs):
         param_groups += [{"params": model.backbone.encoder.layers[idx].parameters(), "lr": lrs[idx]}]
+
+    param_groups += [{"params": model.fc.parameters(), "lr": global_lr}]
+
     return param_groups
 
 
@@ -157,6 +177,16 @@ class Evaluation:
                                scalar_value=avg_corr,
                                global_step=cur_epoch)
 
+    def task_wise_eval(self, model, cur_epoch):
+        if self.task in ["SST-2", "MNLI", "QNLI", "RTE", "WNLI"]:
+            self.cls_evaluation(model=model, cur_epoch=cur_epoch)
+        elif self.task in ["MRPC", "QQP"]:
+            self.f1_eval(model=model, cur_epoch=cur_epoch)
+        elif self.task == "STS-B":
+            self.reg_evaluation(model=model, cur_epoch=cur_epoch)
+        else:
+            raise Exception("It is not valid dataset for evaluation. Please check the dataset")
+
 
 class Downstream_wrapper(nn.Module):
     def __init__(self, downstream_backbone, task, config):
@@ -165,8 +195,7 @@ class Downstream_wrapper(nn.Module):
         self.task = task
 
         self.drop = nn.Dropout(0.1)
-        # tasks = ["CoLA", "SST-2", "MRPC", "QQP",
-        #  "STS-B", "MNLI", "QNLI", "RTE", "WNLI"]
+
         if task in ["CoLA", "SST-2", "MRPC", "QQP", "QNLI", "RTE", "WNLI"]:
             num_cls = 2
         elif task in ["STS-B"]:
@@ -234,8 +263,8 @@ def fine_tuner(args):
                              shuffle=True, num_workers=args.num_workers, collate_fn=collator_fn)
 
     lrs = get_layer_lrs(lr=args.lr, decay_rate=0.8, num_hidden_layers=12)
-    param_groups = make_param_groups(model=model, lrs=lrs)
-    optimizer = torch.optim.Adam(param_groups, lr=args.lr)
+    param_groups = make_param_groups(model=model, lrs=lrs, global_lr=args.lr)
+    optimizer = torch.optim.Adam(param_groups)
 
     loss_func = nn.MSELoss() if args.task == "STS-B" else nn.CrossEntropyLoss()
     Evaluator = Evaluation(task=args.task, dataloader=Test_loader, logging_dir=args.logging_dir)
@@ -269,7 +298,7 @@ def fine_tuner(args):
             train_iter += 1
 
         if (epoch + 1) % args.eval_period == 0:
-            Evaluator.cls_evaluation(model=model, cur_epoch=epoch)
+            Evaluator.task_wise_eval(model=model, cur_epoch=epoch)
 
     print("End of fine-tuning")
     Evaluator.writer.close()
