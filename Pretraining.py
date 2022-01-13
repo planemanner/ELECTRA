@@ -33,6 +33,7 @@ def g_loss(criterion, g_logits, masked_lists, labels):
         if g_logit[mask_list].shape[0] != 0:
             loss += (criterion(g_logit[mask_list], labels[idx][mask_list]) / len(mask_list))  # -> (locs, num_voca)
             effective_batch_cnt += 1
+#         GPU_MEMORY_CHECK(status=f"Generator loss stage : {idx}")
     return loss / effective_batch_cnt
 
 
@@ -85,7 +86,7 @@ def mask_token_filler(sampling_distribution, Generator_logits,
         Generated_tokens[idx, mask_indices] = replaced_tokens 
         Disc_labels[idx, mask_indices] = labels[idx, mask_indices] != replaced_tokens  # 실제 잘 바꿨으면 False 를 못바꿨으면 True
         
-    return Generated_tokens, Disc_labels.float()
+    return Generated_tokens, Disc_labels.long()
 
 
 def masking_seq(seq, mask_ratio=0.15):
@@ -153,7 +154,7 @@ def pretrain(args):
 
     weight_sync(Generator.bert, Discriminator.bert)
 
-    criterion_D = torch.nn.BCEWithLogitsLoss()
+    criterion_D = torch.nn.CrossEntropyLoss()
     criterion_G = torch.nn.CrossEntropyLoss()
     
     optimizer = torch.optim.Adam(set(list(Generator.parameters()) + list(Discriminator.parameters())),
@@ -184,7 +185,7 @@ def pretrain(args):
     print("Learning start !")
     for epoch in range(100):
         for i, seq_tokens in enumerate(train_loader):
-            GPU_MEMORY_CHECK("Start of iteration")
+#             GPU_MEMORY_CHECK("Start of iteration")
             if Train_iter_cnt < 10000:
                 lr_warmup(optimizer=optimizer, tgt_init_lr=args.lr, cur_iter=Train_iter_cnt)
             else:
@@ -208,16 +209,15 @@ def pretrain(args):
                                                                   Generator_logits=Generated_Logits, device=args.device,
                                                                   masked_tokens=masked_tokens,
                                                                   masking_indices=masked_lists, labels=seq_tokens)
-            Disc_logits, _ = Discriminator(Generated_tokens)
-            D_Loss = criterion_D(Disc_logits.squeeze(), Disc_labels)
+            Disc_logits = Discriminator(Generated_tokens)
+            D_Loss = criterion_D(Disc_logits.view(-1, 2), Disc_labels.view(-1))
 
             loss = G_LOSS + args.d_loss_weight * D_Loss
             torch.nn.utils.clip_grad_norm_(set(list(Generator.parameters()) + list(Discriminator.parameters())), 1)
             loss.backward()
             optimizer.step()
             torch.cuda.empty_cache()
-
-            GPU_MEMORY_CHECK("END of iteration")
+#             GPU_MEMORY_CHECK("END of iteration")
 
             with torch.no_grad():
                 Logger.add_scalar(tag="G_Loss / Train",
@@ -240,15 +240,14 @@ def pretrain(args):
                     print(f"ITER : {str(Train_iter_cnt).zfill(6)}, G_LOSS : {G_LOSS.item()}, D_LOSS : {D_Loss.item()}")
                     
             Train_iter_cnt += 1
-
+            
     Logger.close()
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lr", type=float, default=1.875e-4)  # for 128 batch, 5e-4
-    parser.add_argument("--batch_size", type=int, default=48, help="Batch Size")
-    parser.add_argument("--wd", type=float, default=2.5e-2, help="weight decay")  # for 128 batch, 1e-2
+    parser.add_argument("--lr", type=float, default=1.25e-4)  # for 128 batch, 5e-4
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch Size")
+    parser.add_argument("--wd", type=float, default=1e-2, help="weight decay")  # for 128 batch, 1e-2
     parser.add_argument("--d_loss_weight", type=float, default=50)
     parser.add_argument("--Adam_eps", type=float, default=1e-6)
     parser.add_argument("--warm_up_steps", type=int, default=1e4, help="Based on iteration")

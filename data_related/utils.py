@@ -10,18 +10,6 @@ import torch
 csv.field_size_limit(sys.maxsize)
 
 
-def masking_seq(seq, mask_ratio=0.15):
-    len_with_pad = len(seq)
-    seq_len = len_with_pad - (seq.eq(0).sum() + 2)  # sos, eos is denoted by 2 and pad is the other
-    num_mask = int(seq_len * mask_ratio)
-    masked_tokens = seq.clone()
-
-    mask_indices = torch.randint(low=1, high=seq_len, size=(num_mask - 1,))
-    masked_tokens[mask_indices] = 1e9
-    mask_list = torch.where(masked_tokens < 1e9, torch.ones_like(seq), torch.zeros_like(seq)).bool()
-    masked_tokens[mask_indices] = 103
-    return masked_tokens, mask_list
-
 def weight_setup(src_module, tgt_module):
     if isinstance(src_module, torch.nn.Module) and isinstance(tgt_module, torch.nn.Module):
         tgt_module.weight = src_module.weight

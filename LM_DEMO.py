@@ -35,28 +35,27 @@ def demo(args):
     test_dataset = LM_dataset(d_path=args.test_sequences)
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     collater = LM_collater(tokenizer=tokenizer)
-    test_loder = DataLoader(dataset=test_dataset, batch_size=1,
-                            shuffle=False, num_workers=8, collate_fn=collater)
+    test_loader = DataLoader(dataset=test_dataset, batch_size=1,
+                             shuffle=False, num_workers=8, collate_fn=collater)
 
     Gumbel_Distribution = torch.distributions.gumbel.Gumbel(0, 1)
-
-    for seq_tokens in test_loder:
+    print(len(test_loader))
+    for seq_tokens in test_loader:
         seq_tokens = seq_tokens.to(args.device)
-        input_seq = tokenizer.decode(seq_tokens)
+        print(seq_tokens)
+        input_seq = tokenizer.decode(seq_tokens[0])
         print(f"Input Sequence : {input_seq}")
         # (BS, n_enc_seq, n_enc_vocab)
         recon_output = Model(seq_tokens)
-        recon_tokens = torch.argmax(recon_output, dim=2)
-        recon_seq = tokenizer.decode(recon_tokens)
-        print(f"Reconstructed sequence : {recon_seq}")
+
         with torch.no_grad():
             masked_tokens, masked_lists = batch_wise_masking(seq_tokens)
             Generated_tokens, Disc_labels = mask_token_filler(sampling_distribution=Gumbel_Distribution,
                                                               Generator_logits=recon_output, device=args.device,
                                                               masked_tokens=masked_tokens,
                                                               masking_indices=masked_lists, labels=seq_tokens)
-        recon_and_sample = tokenizer.decode(Generated_tokens)
-        print(f"Sampled Sequence : {recon_and_sample}")
+        recon_and_sample = tokenizer.decode(Generated_tokens[0])
+        print(f"Generated Sequence : {recon_and_sample}")
 
 
 if __name__ == "__main__":

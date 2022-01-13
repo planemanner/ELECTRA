@@ -56,19 +56,20 @@ class ELECTRA_DISCRIMINATOR(nn.Module):
         super().__init__()
         self.bert = BERT(config)
         self.projector = nn.Linear(config.d_head * config.n_head, config.d_hidn)
-        self.layer_norm = nn.LayerNorm(config.d_hidn, eps=config.layer_norm_epsilon)
-        self.discriminator = nn.Linear(config.d_hidn, 1, bias=False)
-        self.sigmoid = nn.Sigmoid()
+        self.discriminator = nn.Linear(config.d_hidn, 2, bias=False)
+        self.dropout = nn.Dropout(config.dropout)
+        self.tanh = torch.tanh
 
     def forward(self, inputs):
         # (bs, n_enc_seq, d_hidn), (bs, d_hidn), [(bs, n_head, n_enc_seq, n_enc_seq)]
         outputs, attn_probs = self.bert(inputs)
         # (bs, 2)
         outputs = self.projector(outputs)
-        outputs = self.layer_norm(outputs)
+        outputs = self.tanh(outputs)
+        outputs = self.dropout(outputs)
         cls_logit = self.discriminator(outputs)
-        cls_logit = self.sigmoid(cls_logit)
-        return cls_logit, attn_probs
+
+        return cls_logit
 
 
 class ELECTRA_GENERATOR(nn.Module):

@@ -35,12 +35,20 @@ txt format dataset. The converted dataset must be aligned sentence by sentence b
       ```
   - For fine-tuning
     - will be updated
+  - For LM_DEMO
+    - When you want to test your model whether it is working well or not, use LM_DEMO.py.
+      - First, make a txt file consisted of sentences that you want to change.
+      - Second, give the path of weight file for generator as an argument when you run the LM_DEMO.py script.
+      - Run the LM_DEMO.py script as follows.
+        ```python3
+        python LM_DEMO.py
+        ```
+        
 # Curruent Status
   - Finetuning dataloader is updated.
   - Add-on module will be added for downstream task belonging to GLUE benchmark.
 # To do
-  - logger
-  - fine-tuning
+  - Update for usage description of fine-tuning script. 
 # Miscellaneous
   - Though the ELECTRA paper's author described that they didn't back-propagate the discriminator loss 
     through the generator due to sampling step, actually, we can back-propagate by using gumbel softmax.
