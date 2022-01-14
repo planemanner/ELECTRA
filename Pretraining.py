@@ -31,9 +31,8 @@ def g_loss(criterion, g_logits, masked_lists, labels):
         g_logit, mask_list = values  # (num_pos, num_voca) , (locs)
         
         if g_logit[mask_list].shape[0] != 0:
-            loss += (criterion(g_logit[mask_list], labels[idx][mask_list]) / len(mask_list))  # -> (locs, num_voca)
+            loss += criterion(g_logit[mask_list], labels[idx][mask_list])  # -> (locs, num_voca)
             effective_batch_cnt += 1
-#         GPU_MEMORY_CHECK(status=f"Generator loss stage : {idx}")
     return loss / effective_batch_cnt
 
 
