@@ -242,6 +242,7 @@ def pretrain(args):
             
     Logger.close()
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--lr", type=float, default=1.25e-4)  # for 128 batch, 5e-4

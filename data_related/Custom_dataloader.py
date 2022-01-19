@@ -4,7 +4,7 @@ import os
 import torch
 import csv
 import sys
-os.environ["TOKENIZERS_PARALLELISM"] = "true"
+# os.environ["TOKENIZERS_PARALLELISM"] = "true"
 csv.field_size_limit(sys.maxsize)
 
 
@@ -40,9 +40,10 @@ class FINE_TUNE_DATASET(Dataset):
         assert mode in ["train", "test"], "You must choose train or test as a mode"
         self.task = task
         self.data = self.load_dataset(task, mode, root_dir)
+        self.mode = mode
 
     def load_dataset(self, task, mode, root_dir):
-        if task != "MNLI" and mode != "test":
+        if task != "MNLI" or mode != "test":
             if task == "MRPC":
                 data_path = os.path.join(root_dir, task, f"msr_paraphrase_{mode}.txt")
             else:
@@ -52,7 +53,7 @@ class FINE_TUNE_DATASET(Dataset):
             rdr = csv.reader(f, delimiter='\t')
             data = list(rdr)[1:]  # 범주가 첫 행에 있으므로 해당 내용 제거
             f.close()
-
+            print(data_path)
         else:
             """
             In the case of MNLI, the test datasets are consisted of two types (matched, mismatched domains).
@@ -70,29 +71,30 @@ class FINE_TUNE_DATASET(Dataset):
             data_2 = list(rdr)[1:]
             f_2.close()
             data = data_1 + data_2  # list of lists
-
+            print(data_path_1)
+            print(data_path_2)
         return data
 
     def __getitem__(self, idx):
-        if self.task == "CoLA":
+        if self.task == "CoLA" :
             _, label, _, sentence = self.data[idx]
-            return sentence, label
+            return sentence, int(label)
 
         elif self.task == "SST-2":
             sentence, label = self.data[idx]  # 0 : negative, 1: positive
-            return sentence, label
+            return sentence, int(label)
 
         elif self.task == "MRPC":
             label, sentence1_id, sentence2_id, sentence_1, sentence_2 = self.data[idx]
-            return sentence_1 + "[SEP]" + sentence_2, label
+            return sentence_1 + "[SEP]" + sentence_2, int(label)
 
         elif self.task == "QQP":
             _, _, _, question_1, question_2, label = self.data[idx]  # 0 : not similar, 1: similar
-            return question_1 + "[SEP]" + question_2, label
+            return question_1 + "[SEP]" + question_2, int(label)
 
         elif self.task == "STS-B":
             sentence_1, sentence_2, similarity = self.data[idx][-3], self.data[idx][-2], self.data[idx][-1]
-            return sentence_1 + "[SEP]" + sentence_2, similarity
+            return sentence_1 + "[SEP]" + sentence_2, float(similarity)
 
         elif self.task == "MNLI":
             """
@@ -151,8 +153,22 @@ class FINE_TUNE_COLLATOR:
         self.tokenizer = tokenizer
 
     def __call__(self, batch):
-        sentences, labels = batch
+        sentences = []
+        labels = []
+        for data in batch:
+            sentences += [data[0]]
+            labels += [data[1]]
         dict_info = self.tokenizer(sentences, padding=True, truncation=True)
         return torch.as_tensor(data=dict_info["input_ids"], dtype=torch.long), torch.as_tensor(labels, dtype=torch.long)
 
+
+
+
+# for _data in train_loder:
+#     tokenized_data = _data
+#     print(f"data shape : {len(tokenized_data)}")
+#     print(f"data sample : {tokenized_data[0]}")
+#     print(f"data type : {type(tokenized_data[0])}")
+
+#     debug = 0
 
