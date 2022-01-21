@@ -44,22 +44,26 @@ class FINE_TUNE_DATASET(Dataset):
 
     def load_dataset(self, task, mode, root_dir):
         if task != "MNLI" or mode != "test":
-            if task == "MRPC":
-                data_path = os.path.join(root_dir, task, f"msr_paraphrase_{mode}.txt")
+            if task == "MRPC" or task== "RTE":
+                data_path = os.path.join(root_dir, task, f"{mode}.csv")
+                with open(data_path, newline='') as csv_f:
+                    rows = list(csv.reader(csv_f))
+                    data = rows[1:]
+                csv_f.close()
             else:
                 data_path = os.path.join(root_dir, task, f"{mode}.tsv")
 
-            f = open(data_path, 'r', encoding='utf-8')
-            rdr = csv.reader(f, delimiter='\t')
-            data = list(rdr)[1:]  # 범주가 첫 행에 있으므로 해당 내용 제거
-            f.close()
+                f = open(data_path, 'r', encoding='utf-8')
+                rdr = csv.reader(f, delimiter='\t')
+                data = list(rdr)[1:]  # 범주가 첫 행에 있으므로 해당 내용 제거
+                f.close()
             print(data_path)
         else:
             """
             In the case of MNLI, the test datasets are consisted of two types (matched, mismatched domains).
             """
             data_path_1 = os.path.join(root_dir, task, f"{mode}_mismatched.tsv")
-            data_path_2 = os.path.join(root_dir, task, f"{mode}_matched")
+            data_path_2 = os.path.join(root_dir, task, f"{mode}_matched.tsv")
 
             f_1 = open(data_path_1, 'r', encoding='utf-8')
             rdr = csv.reader(f_1, delimiter='\t')
@@ -85,7 +89,8 @@ class FINE_TUNE_DATASET(Dataset):
             return sentence, int(label)
 
         elif self.task == "MRPC":
-            label, sentence1_id, sentence2_id, sentence_1, sentence_2 = self.data[idx]
+
+            _index, label, sentence1_id, sentence2_id, sentence_1, sentence_2 = self.data[idx]
             return sentence_1 + "[SEP]" + sentence_2, int(label)
 
         elif self.task == "QQP":
@@ -131,7 +136,10 @@ class FINE_TUNE_DATASET(Dataset):
             not_entailment : 0
             entailment : 1
             """
+            sample = self.data[idx]
+
             question, answer, label = self.data[idx][1], self.data[idx][2], self.data[idx][3]
+#             print(label)
             if label.lower() == "entailment":
                 long_type_label = 1
             else:
@@ -159,7 +167,7 @@ class FINE_TUNE_COLLATOR:
             sentences += [data[0]]
             labels += [data[1]]
         dict_info = self.tokenizer(sentences, padding=True, truncation=True)
-        return torch.as_tensor(data=dict_info["input_ids"], dtype=torch.long), torch.as_tensor(labels, dtype=torch.long)
+        return torch.as_tensor(data=dict_info["input_ids"], dtype=torch.long), torch.as_tensor(labels)
 
 
 

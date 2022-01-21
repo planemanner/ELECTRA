@@ -10,7 +10,7 @@ import random
 from data_related.Custom_dataloader import FINE_TUNE_DATASET, FINE_TUNE_COLLATOR
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-import scipy
+from scipy import stats
 
 
 def lr_scheduling(global_lr, layer_lrs, optimizer):
@@ -48,7 +48,7 @@ def make_param_groups(model, lrs, global_lr):
     for idx, lr in enumerate(lrs):
         param_groups += [{"params": model.backbone.encoder.layers[idx].parameters(), "lr": lrs[idx]}]
 
-    param_groups += [{"params": model.fc.parameters(), "lr": global_lr}]
+    param_groups += [{"params": model.fc.parameters(), "lr": global_lr * lrs[idx] * 0.8}]
 
     return param_groups
 
@@ -109,7 +109,7 @@ class Evaluation:
         F1 Score : MRPC, QQP
         PearsonCorrCoef, SpearmanCorrCoef : STS-B
         """
-
+    @torch.no_grad()
     def cls_evaluation(self, model, cur_epoch, topk=(1,)):
         model.eval()
 
@@ -135,7 +135,7 @@ class Evaluation:
                                global_step=cur_epoch)
         acc = acc_groups[f"Epoch {cur_epoch}'s top-1"] 
         print(f"Accuracy : {acc} %")
-
+    @torch.no_grad()
     def f1_eval(self, model, cur_epoch):
         model.eval()
         sample_cnt = {"TP": 0, "TN": 0, "FP": 0, "FN": 0}
@@ -147,10 +147,10 @@ class Evaluation:
             num_total += labels.size(0)
             preds = model(sentences)
             top_values, top_indices = preds.topk(1, 1)
-            mask = labels.eq(top_indices.view(-1))
-            tp = (mask * preds.view(-1)).sum()
+            mask = labels.eq(top_indices.view(-1)) # 정답 마스크
+            tp = (mask * top_indices.view(-1)).sum()
             tn = mask.sum() - tp
-            fp = (~mask * preds).sum()
+            fp = (~mask * top_indices.view(-1)).sum()
             fn = (~mask).sum() - fp
 
             sample_cnt["TP"] += tp
@@ -159,11 +159,11 @@ class Evaluation:
             sample_cnt["FN"] += fn
 
         F1_SCORE = sample_cnt["TP"] / (sample_cnt["TP"] + 0.5 * (sample_cnt["FP"]+sample_cnt["FN"]))
-        print(f"Current epoch : {cur_epoch}, F1 SCORE : {F1_SCORE}")
+        print(f"Current epoch : {cur_epoch}, F1 SCORE : {F1_SCORE * 100}")
         self.writer.add_scalar(tag=f"{self.task} / F1-Score (%)",
                                scalar_value=F1_SCORE,
                                global_step=cur_epoch)
-
+    @torch.no_grad()
     def reg_evaluation(self, model, cur_epoch):
         model.eval()
         num_total = 0
@@ -173,14 +173,17 @@ class Evaluation:
             sentences, labels = sentences.to(self.device), labels.to(self.device)
             num_total += labels.size(0)
             preds = model(sentences)
-            r, p = scipy.stats.pearsonr(preds.squeeze(), labels)
-            corr_total += r
+            
+            r, p = stats.pearsonr(preds.cpu().squeeze(), labels.cpu())
+            corr_total += ((r+1)/2)
         avg_corr = (corr_total / num_total)
         print(f"Current epoch : {cur_epoch}, Average pearson correlation coefficient : {avg_corr}")
         self.writer.add_scalar(tag=f"{self.task} / Pearson Corr",
                                scalar_value=avg_corr,
                                global_step=cur_epoch)
-
+        
+        
+    @torch.no_grad()
     def task_wise_eval(self, model, cur_epoch):
         if self.task in ["SST-2", "MNLI", "QNLI", "RTE", "WNLI", "CoLA"]:
             self.cls_evaluation(model=model, cur_epoch=cur_epoch)
@@ -209,6 +212,8 @@ class Downstream_wrapper(nn.Module):
             num_cls = 3
 
         self.fc = nn.Linear(config.n_head * config.d_head, num_cls)
+        nn.init.xavier_uniform_(self.fc.weight.data, gain=1)
+        self.fc.bias.data.zero_()
 
 
     def forward(self, inputs):
@@ -223,8 +228,8 @@ class Downstream_wrapper(nn.Module):
 
 
 def fine_tuner(args):
-    if not os.path.exists(args.task):
-        os.mkdir(args.task)
+#     if not os.path.exists(args.task):
+#         os.mkdir(args.task)
 
     '''MANUAL SEED ALLOCATION'''
     torch.backends.cudnn.benchmark = True
@@ -249,8 +254,10 @@ def fine_tuner(args):
     ED = ELECTRA_DISCRIMINATOR(config=cfg)
     pretrain_checkpoint = torch.load(args.pretrained_model_weight_path)
     ED.load_state_dict(pretrain_checkpoint["state_dict"])
-    tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-
+#     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+    tokenizer_path = "/vision/7032593/NLP/ELECTRA/tokenizer_files"
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    
     downstream_Backbone = ED.bert
     model = Downstream_wrapper(downstream_backbone=downstream_Backbone, task=args.task, config=cfg)
     model = model.to(args.device)
@@ -300,7 +307,7 @@ def fine_tuner(args):
             optimizer.step()
             with torch.no_grad():
                 if train_iter % 50 ==0:
-                    print(f"{epoch} / {args.epochs}, {idx+1} / {Train_loader.__len__()}, Train Loss : {loss.item()}")
+                    print(f"{epoch+1} / {args.epochs}, {idx+1} / {Train_loader.__len__()}, Train Loss : {loss.item()}")
             train_iter += 1
 
         if (epoch + 1) % args.eval_period == 0:
@@ -315,7 +322,7 @@ if __name__ == "__main__":
     parser.add_argument("--pretrained_model_weight_path", 
                         type=str, 
                         default="/vision/7032593/NLP/ELECTRA/check_points/DISC_ITER_190000_LM_MODEL.pth")
-    parser.add_argument("--task", type=str, default="CoLA",
+    parser.add_argument("--task", type=str, default="QQP",
                         choices=["CoLA", "SST-2", "MRPC", "QQP", "STS-B", "MNLI", "QNLI", "RTE", "WNLI"])
     parser.add_argument("--data_root_dir", type=str, default="/vision/7032593/NLP/GLUE-baselines/glue_data")
     parser.add_argument("--device", type=str, default="cuda:0")
