@@ -18,25 +18,18 @@ def GPU_MEMORY_CHECK(status):
     f = r-a  # free inside reserved
     print(f"Current status : {status}, Allocated memory : {a} / {t} \n Reserved memory : {f} / {t} \n")
 
-
-def g_loss(criterion, g_logits, masked_lists, labels):
-    """
-    :param g_logits: (b, num_pos, num_voca)
-    :param masked_lists: (b, dynamic lists)
-    :param labels: (b, num_pos)
-    :return:
-    """
-    losses = []
-    for idx, values in enumerate(zip(g_logits, masked_lists)):
-        g_logit, mask_list = values  # (num_pos, num_voca) , (locs)        
-        if g_logit[mask_list].shape[0] != 0:
-            loss = criterion(g_logit[mask_list], labels[idx][mask_list])   # -> (locs, num_voca)
-            losses.append(loss)
-    losses = torch.stack(losses).mean()
-
-    return losses
-
-
+    
+class EFF_GEN_LOSS(torch.nn.Module):
+    def __init__(self):
+        super(EFF_GEN_LOSS, self).__init__()
+        self.criterion = torch.nn.CrossEntropyLoss()
+    def __call__(self, G_Logits, Masked_list, Labels):
+        masked_g_logits = G_Logits[Masked_list, :]
+        masked_labels = Labels[Masked_list, :]
+        loss = self.criterion(masked_g_logits, masked_labels)
+        return loss
+    
+    
 def lr_warmup(optimizer, tgt_init_lr, cur_iter, max_iter=10000):
     warm_lr = tgt_init_lr / (max_iter - cur_iter + 1)
     optimizer.param_groups[0]['lr'] = warm_lr
@@ -66,27 +59,12 @@ def sampler(Dist, logits, device):
 
 def mask_token_filler(sampling_distribution, Generator_logits,
                       device, masked_tokens, masking_indices, labels):
-    """
-    :param sampling_distribution: It should be Gumbel Distribution
-    :param logits: Generator Language Model Outputs
-    (Batch Size, Num Positions, Num Vocab)
-    :param device: cpu or gpu
-    :param masking_indices: target masking token indices
-    (Batch Size, Num Masking Tokens)
-    Num Masking Tokens < Num Positions
-    Typically, Num Masking Tokens is less than 15 % of Num Positions
-    :return:
-    """
+
     Generated_tokens = masked_tokens.clone()
-    Disc_labels = torch.zeros_like(labels).bool()
-    for idx, values in enumerate(zip(Generator_logits, masking_indices)):
-        g_logit, mask_indices = values # (num_pos, num_voca), (num_mask)
-        tgt_logits = g_logit[mask_indices, :]
-        replaced_tokens = sampler(Dist=sampling_distribution, logits=tgt_logits, device=device)
-        Generated_tokens[idx, mask_indices] = replaced_tokens 
-        Disc_labels[idx, mask_indices] = labels[idx, mask_indices] != replaced_tokens  # 실제 잘 바꿨으면 False 를 못바꿨으면 True
-        
-    return Generated_tokens, Disc_labels.long()
+    sampled_tokens = sampler(Dist=sampling_distribution, logits=Generator_logits[masking_indices, :], device=device)
+    Generated_tokens[masking_indices, :] = sampled_tokens
+
+    return Generated_tokens, torch.tensor(masking_indices, device=device).long()
 
 
 def masking_seq(seq, mask_ratio=0.15):
@@ -101,7 +79,8 @@ def masking_seq(seq, mask_ratio=0.15):
             masking_list += [tmp_idx]
             
     masked_tokens[masking_list] = 103
-    return masked_tokens, masking_list
+    masked_list = (masked_tokens != seq).tolist()
+    return masked_tokens, masked_list
 
 
 def batch_wise_masking(tokens, mask_ratio=0.163):
@@ -152,12 +131,11 @@ def pretrain(args):
 
     Discriminator = ELECTRA_DISCRIMINATOR(config=D_cfg)
     
-   
     weight_sync(Generator.bert, Discriminator.bert)
 
     criterion_D = torch.nn.CrossEntropyLoss()
-    criterion_G = torch.nn.CrossEntropyLoss()
-    
+    criterion_G = EFF_GEN_LOSS()
+
     if args.resume:
         G_check_point = torch.load(args.G_ckpt_path, map_location='cpu')
         D_check_point = torch.load(args.D_ckpt_path, map_location='cpu')
@@ -174,8 +152,8 @@ def pretrain(args):
         optimizer.load_state_dict(G_check_point["optimizer"])
 
     else:
-#         Generator = torch.nn.DataParallel(Generator, device_ids=[0, 1, 2, 3]).cuda()
-#         Discriminator = torch.nn.DataParallel(Discriminator, device_ids=[0, 1, 2, 3]).cuda()
+#         Generator = torch.nn.DataParallel(Generator, device_ids=[0, 1, 2, 3, 4, 5]).cuda()
+#         Discriminator = torch.nn.DataParallel(Discriminator, device_ids=[0, 1, 2, 3, 4, 5]).cuda()
         Generator=Generator.to(args.device)
         Discriminator=Discriminator.to(args.device)
         params = list(Generator.parameters())+list(Discriminator.parameters())
@@ -189,7 +167,7 @@ def pretrain(args):
     collator = LM_collater(tokenizer)
 
     train_loader = DataLoader(dataset=train_dataset, batch_size=args.batch_size,
-                              shuffle=True, collate_fn=collator)
+                              shuffle=True, collate_fn=collator, num_workers=args.num_workers)
 
     Logger = SummaryWriter(log_dir=args.log_dir)
     
@@ -202,27 +180,20 @@ def pretrain(args):
     print("Learning start !")
     for epoch in range(100):
         for i, seq_tokens in enumerate(train_loader):
-#             GPU_MEMORY_CHECK("Start of iteration")
             with torch.no_grad():
                 if Train_iter_cnt < 10000:
                     lr_warmup(optimizer=optimizer, tgt_init_lr=args.lr, cur_iter=Train_iter_cnt)
-
                 else:
                     lr_decay(optimizer=optimizer, init_lr=args.lr, cur_iter=Train_iter_cnt, max_iter=args.total_iteration)
 
-            
-            '''lr modification'''
-
             seq_tokens = seq_tokens.to(args.device)
-
             optimizer.zero_grad()
 
             with torch.no_grad():
                 masked_tokens, masked_lists = batch_wise_masking(seq_tokens)
-                
-            Generated_Logits = Generator(masked_tokens.to(args.device))
-            G_LOSS = g_loss(criterion=criterion_G, g_logits=Generated_Logits, 
-                            masked_lists=masked_lists, labels=seq_tokens)
+
+            Generated_Logits = Generator(masked_tokens)
+            G_LOSS = criterion_G(G_Logits=Generated_Logits, Masked_list=masked_lists, Labels=seq_tokens)
             # 반면에 Discriminator 는 전체를 봄
             with torch.no_grad():
                 Generated_tokens, Disc_labels = mask_token_filler(sampling_distribution=Gumbel_Distribution,
@@ -231,14 +202,13 @@ def pretrain(args):
                                                                   masking_indices=masked_lists, labels=seq_tokens)
             Disc_logits = Discriminator(Generated_tokens)
             D_Loss = criterion_D(Disc_logits.view(-1, 2), Disc_labels.view(-1))
-
             loss = G_LOSS + args.d_loss_weight * D_Loss
 #             torch.nn.utils.clip_grad_norm_(set(list(Generator.parameters()) + list(Discriminator.parameters())), 1)
             torch.nn.utils.clip_grad_norm_(params, 1)
     
             loss.backward()
             optimizer.step()
-            gc.collect()
+#             gc.collect()
             torch.cuda.empty_cache()
             
             with torch.no_grad():
@@ -259,16 +229,16 @@ def pretrain(args):
                     print("Done !!!")
                     
                 if ((Train_iter_cnt + 1) % args.verbose_period) == 0:
-                    print(f"ITER : {str(Train_iter_cnt).zfill(6)}, G_LOSS : {G_LOSS.item()}, D_LOSS : {D_Loss.item()}")
+                    print(f"ITER : {str(Train_iter_cnt + 1).zfill(6)}, G_LOSS : {G_LOSS.item()}, D_LOSS : {D_Loss.item()}")
                     
                 Train_iter_cnt += 1  
     Logger.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lr", type=float, default=2.5e-4)  # for 128 batch, 5e-4
-    parser.add_argument("--batch_size", type=int, default=48, help="Batch Size")
-    parser.add_argument("--wd", type=float, default=1e-2, help="weight decay")  # for 128 batch, 1e-2
+    parser.add_argument("--lr", type=float, default=0.0000625)  # for 128 batch, 5e-4
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch Size")
+    parser.add_argument("--wd", type=float, default=8e-2, help="weight decay")  # for 128 batch, 1e-2
     parser.add_argument("--d_loss_weight", type=float, default=50)
     parser.add_argument("--Adam_eps", type=float, default=1e-6)
     parser.add_argument("--warm_up_steps", type=int, default=1e4, help="Based on iteration")
@@ -279,6 +249,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_save", type=str, default="./check_points")
     parser.add_argument("--save_period", type=int, default=20000)
     parser.add_argument("--verbose_period", type=int, default=50)
+    parser.add_argument("--num_workers", type=int, default=16)
     parser.add_argument("--resume", action='store_true')
     parser.add_argument("--D_ckpt_path", type=str,
                         default="/vision/7032593/NLP/ELECTRA/check_points/DISC_ITER_190000_LM_MODEL.pth")

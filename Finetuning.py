@@ -255,7 +255,7 @@ def fine_tuner(args):
     pretrain_checkpoint = torch.load(args.pretrained_model_weight_path)
     ED.load_state_dict(pretrain_checkpoint["state_dict"])
 #     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-    tokenizer_path = "/vision/7032593/NLP/ELECTRA/tokenizer_files"
+    tokenizer_path = "./tokenizer_files"
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
     
     downstream_Backbone = ED.bert
@@ -321,10 +321,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--pretrained_model_weight_path", 
                         type=str, 
-                        default="/vision/7032593/NLP/ELECTRA/check_points/DISC_ITER_190000_LM_MODEL.pth")
+                        default="./DISC_ITER_190000_LM_MODEL.pth")
     parser.add_argument("--task", type=str, default="QQP",
                         choices=["CoLA", "SST-2", "MRPC", "QQP", "STS-B", "MNLI", "QNLI", "RTE", "WNLI"])
-    parser.add_argument("--data_root_dir", type=str, default="/vision/7032593/NLP/GLUE-baselines/glue_data")
+    parser.add_argument("--data_root_dir", type=str, default="./GLUE-baselines/glue_data")
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--save_root_dir", type=str, default="./save")
     parser.add_argument("--warmup_fraction", type=int, default=0.1)

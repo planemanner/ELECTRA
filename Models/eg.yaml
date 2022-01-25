@@ -1,0 +1,187 @@
+bert.encoder.enc_emb.weight: Embedding(30522, 128)
+bert.encoder.pos_emb.weight: Embedding(513, 128)
+bert.encoder.embeddings_project.weight: Linear(in_features=128, out_features=64, bias=True)
+bert.encoder.layers.0.self_attn.W_Q.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.0.self_attn.W_K.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.0.self_attn.W_V.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.0.self_attn.linear.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.0.self_attn.layer_norm.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.0.layer_norm1.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.0.pos_ffn.conv1.weight: Conv1d(64, 256, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.0.pos_ffn.conv2.weight: Conv1d(256, 64, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.0.layer_norm2.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.1.self_attn.W_Q.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.1.self_attn.W_K.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.1.self_attn.W_V.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.1.self_attn.linear.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.1.self_attn.layer_norm.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.1.layer_norm1.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.1.pos_ffn.conv1.weight: Conv1d(64, 256, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.1.pos_ffn.conv2.weight: Conv1d(256, 64, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.1.layer_norm2.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.2.self_attn.W_Q.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.2.self_attn.W_K.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.2.self_attn.W_V.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.2.self_attn.linear.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.2.self_attn.layer_norm.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.2.layer_norm1.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.2.pos_ffn.conv1.weight: Conv1d(64, 256, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.2.pos_ffn.conv2.weight: Conv1d(256, 64, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.2.layer_norm2.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.3.self_attn.W_Q.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.3.self_attn.W_K.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.3.self_attn.W_V.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.3.self_attn.linear.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.3.self_attn.layer_norm.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.3.layer_norm1.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.3.pos_ffn.conv1.weight: Conv1d(64, 256, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.3.pos_ffn.conv2.weight: Conv1d(256, 64, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.3.layer_norm2.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.4.self_attn.W_Q.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.4.self_attn.W_K.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.4.self_attn.W_V.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.4.self_attn.linear.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.4.self_attn.layer_norm.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.4.layer_norm1.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.4.pos_ffn.conv1.weight: Conv1d(64, 256, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.4.pos_ffn.conv2.weight: Conv1d(256, 64, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.4.layer_norm2.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.5.self_attn.W_Q.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.5.self_attn.W_K.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.5.self_attn.W_V.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.5.self_attn.linear.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.5.self_attn.layer_norm.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.5.layer_norm1.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.5.pos_ffn.conv1.weight: Conv1d(64, 256, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.5.pos_ffn.conv2.weight: Conv1d(256, 64, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.5.layer_norm2.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.6.self_attn.W_Q.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.6.self_attn.W_K.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.6.self_attn.W_V.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.6.self_attn.linear.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.6.self_attn.layer_norm.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.6.layer_norm1.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.6.pos_ffn.conv1.weight: Conv1d(64, 256, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.6.pos_ffn.conv2.weight: Conv1d(256, 64, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.6.layer_norm2.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.7.self_attn.W_Q.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.7.self_attn.W_K.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.7.self_attn.W_V.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.7.self_attn.linear.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.7.self_attn.layer_norm.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.7.layer_norm1.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.7.pos_ffn.conv1.weight: Conv1d(64, 256, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.7.pos_ffn.conv2.weight: Conv1d(256, 64, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.7.layer_norm2.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.8.self_attn.W_Q.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.8.self_attn.W_K.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.8.self_attn.W_V.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.8.self_attn.linear.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.8.self_attn.layer_norm.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.8.layer_norm1.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.8.pos_ffn.conv1.weight: Conv1d(64, 256, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.8.pos_ffn.conv2.weight: Conv1d(256, 64, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.8.layer_norm2.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.9.self_attn.W_Q.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.9.self_attn.W_K.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.9.self_attn.W_V.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.9.self_attn.linear.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.9.self_attn.layer_norm.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.9.layer_norm1.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.9.pos_ffn.conv1.weight: Conv1d(64, 256, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.9.pos_ffn.conv2.weight: Conv1d(256, 64, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.9.layer_norm2.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.10.self_attn.W_Q.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.10.self_attn.W_K.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.10.self_attn.W_V.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.10.self_attn.linear.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.10.self_attn.layer_norm.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.10.layer_norm1.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.10.pos_ffn.conv1.weight: Conv1d(64, 256, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.10.pos_ffn.conv2.weight: Conv1d(256, 64, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.10.layer_norm2.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.11.self_attn.W_Q.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.11.self_attn.W_K.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.11.self_attn.W_V.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.11.self_attn.linear.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.11.self_attn.layer_norm.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.11.layer_norm1.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.11.pos_ffn.conv1.weight: Conv1d(64, 256, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.11.pos_ffn.conv2.weight: Conv1d(256, 64, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.11.layer_norm2.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+projector.weight: Linear(in_features=64, out_features=128, bias=True)
+layer_norm.weight: LayerNorm((128,), eps=1e-12, elementwise_affine=True)
+language_model.weight: Linear(in_features=128, out_features=30522, bias=True)
+bert.encoder.enc_emb.weight: Embedding(30522, 128)
+bert.encoder.pos_emb.weight: Embedding(513, 128)
+bert.encoder.embeddings_project.weight: Linear(in_features=128, out_features=64, bias=True)
+bert.encoder.layers.0.self_attn.W_Q.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.0.self_attn.W_K.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.0.self_attn.W_V.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.0.self_attn.linear.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.0.self_attn.layer_norm.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.0.layer_norm1.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.0.pos_ffn.conv1.weight: Conv1d(64, 256, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.0.pos_ffn.conv2.weight: Conv1d(256, 64, kernel_size=(1,), stride=(1,))
+bert.encoder.layers.0.layer_norm2.weight: LayerNorm((64,), eps=1e-12, elementwise_affine=True)
+bert.encoder.layers.1.self_attn.W_Q.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.1.self_attn.W_K.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.1.self_attn.W_V.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.layers.1.self_attn.linear.weight: Linear(in_features=64, out_features=64,
+  bias=True)
+bert.encoder.enc_emb.weight: Embedding(30522, 128)

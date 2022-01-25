@@ -1,7 +1,8 @@
 from torch import nn
 import torch
-from .BasicModules import Encoder
+from BasicModules import Encoder
 from data_related.utils import Config
+import yaml
 
 """
 # Configuration
@@ -104,26 +105,139 @@ def weight_sync(src_model, tgt_model):
     tgt_model.encoder.pos_emb.weight = src_model.encoder.pos_emb.weight
 
 
-# cfg = Config({"n_enc_vocab": 30522,
-#               "n_enc_seq": 128,
-#               "n_seg_type": 2,
-#               "n_layer": 12,
-#               "d_hidn": 256,
-#               "i_pad": 0,
-#               "d_ff": 512,
-#               "n_head": 4,
-#               "d_head": 64,
-#               "dropout": 0.1,
-#               "layer_norm_epsilon": 1e-12
-#               })
-#
-# EG = ELECTRA_GENERATOR(cfg)
-#
-# param_cnt = []
-# import numpy as np
-#
-# for param in EG.parameters():
-#     if param.requires_grad:
-#         param_cnt += list(param.view(-1).shape)
-#
-# print(np.sum(param_cnt)/1e7)
+class name_provider:
+    def __init__(self,):
+        self.call_cnt = 0
+
+    def __call__(self, m, module_name):
+
+        # name = f"{str(self.call_cnt)}_{module_name}"
+
+        # self.call_cnt += 1
+        name = module_name
+        return name
+
+
+class Hook:
+    def __init__(self, module, module_name, name_provider, hint=None, yaml_path='./ResNet50.yaml', backward=False):
+        """
+        :param module_idx:
+        :param module:
+        :param hint: If hint is None, this means that it is not a weighted residual connection or a kind of similar type
+        :param yaml_path:
+        :param backward:
+        """
+        self.yaml_path = yaml_path
+        self.name_provider = name_provider
+        self.hint = hint
+        if backward == False:
+            self.hook = module.register_forward_hook(self.hook_fn)
+        else:
+            self.hook = module.register_backward_hook(self.hook_fn)
+        self.module_name = module_name
+
+    def hook_fn(self, module, input, output):
+
+        module_name = self.name_provider(module, self.module_name)
+        # p = module.weight
+        param = list(module.parameters())
+        print(param)
+        data = {module_name: module.__repr__()}
+        """
+        Activation 이나 Pooling 이면 Skip 하도록 하는 게 좋을까 ? Maybe Yes.
+        """
+
+        with open(self.yaml_path, "a") as f:
+            yaml.dump(data, f)
+        f.close()
+        self.close()
+
+    def close(self):
+        self.hook.remove()
+
+
+def get_module(model, args, level=1):
+    wrap_cnt = 0
+    total_wrap = len(args)
+    module = model
+    """
+    level=0 : weight level
+    level=1 : 가장 안쪽 모듈
+    level=2 : level 1 위 모듈
+    level=n : level n-1 위 모듈
+    """
+    while (total_wrap-level) > wrap_cnt:
+        module = getattr(module, args[wrap_cnt])
+        wrap_cnt += 1
+    return module
+
+
+cfg = Config({"n_enc_vocab": 30522,  # correct
+              "n_enc_seq": 512,  # correct
+              "n_seg_type": 2,  # correct
+              "n_layer": 12,  # correct
+              "d_hidn": 128,  # correct
+              "i_pad": 0,  # correct
+              "d_ff": 1024,  # correct
+              "n_head": 4,  # correct
+              "d_head": 64,  # correct
+              "dropout": 0.1,  # correct
+              "layer_norm_epsilon": 1e-12  # correct
+              })
+
+
+def get_archs(model):
+    archs = []
+    for name, value in model.named_parameters():
+        archs.append(name)
+    return archs
+
+
+def arch_generator(model):
+    params_generator = model.parameters()
+    params = []
+    new_archs = []
+    archs = get_archs(model)
+    for p, arch in zip(params_generator, archs):
+        if 'bias' not in arch:
+            params += [p]
+            new_archs += [arch]
+
+    return new_archs
+
+
+class Hook_wrapper:
+    def __init__(self, model, yaml_path='./ResNet50.yaml'):
+        self.model = model
+        self.yaml_path = yaml_path
+        self.name_provider = name_provider()
+
+    def __call__(self):
+        archs = arch_generator(self.model)
+        for idx, arch_name in enumerate(archs):
+            args = arch_name.split('.')
+            m = get_module(self.model, args=args)
+            Hook(module=m, module_name=arch_name, name_provider=self.name_provider, yaml_path=self.yaml_path)
+
+from thop import profile
+
+EG = ELECTRA_GENERATOR(cfg)
+# archs = arch_generator(EG)
+# Hook_wrapper = Hook_wrapper(model=EG, yaml_path="./eg.yaml")
+# Hook_wrapper()
+
+sample = torch.randint(low=1, high=100, size=(1, 128))
+FLOPS, PARAM = profile(model=EG, inputs=(sample,))
+print(PARAM, FLOPS)
+print(PARAM/1e7)
+# output = EG(sample)
+# loss = output.sum()
+# loss.backward()
+# path = './eg.yaml'
+# with open(path, 'r') as _f:
+#     data = yaml.load(_f, yaml.FullLoader)
+# _f.close()
+# for (key, val) in data.items():
+#     # print(key)
+#     print(val)
+

@@ -28,7 +28,7 @@ class ScaledDotProductAttention(nn.Module):
 
     def forward(self, Q, K, V, attn_mask):
         # (bs, n_head, n_q_seq, n_k_seq)
-        scores = torch.matmul(Q, K.transpose(-1, -2))
+        scores = torch.matmul(Q, K.transpose(-1, -2))  # Q 의 n_k_seq 는 K 의 n_k_seq 와 동일.
         scores = scores.mul_(self.scale)
         scores.masked_fill_(attn_mask, -1e9)
         # (bs, n_head, n_q_seq, n_k_seq)
@@ -68,9 +68,11 @@ class MultiHeadAttention(nn.Module):
         # (bs, n_head, n_q_seq, n_k_seq)
         attn_mask = attn_mask.unsqueeze(1).repeat(1, self.config.n_head, 1, 1)
         
-        # (bs, n_head, n_q_seq, d_head), (bs, n_head, n_q_seq, n_k_seq)
+        # (bs, n_head, n_q_seq, d_head) -> (bs, n_head, n_q_seq, n_k_seq)
+
         context, attn_prob = self.scaled_dot_attn(q_s, k_s, v_s, attn_mask)
         # (bs, n_head, n_q_seq, h_head * d_head)
+
         context = context.transpose(1, 2).contiguous().view(batch_size, -1, self.config.n_head * self.config.d_head)
         # (bs, n_head, n_q_seq, e_embd)
         output = self.linear(context)
@@ -94,13 +96,12 @@ class PoswiseFeedForwardNet(nn.Module):
 
     def forward(self, inputs):
         # (bs, d_ff, n_seq)
-        output = self.conv1(inputs.transpose(1, 2))
-
+        output = self.conv1(inputs.transpose(1, 2))  # input 자체가 (bs, d_head * n_head, n_seq)
         output = self.active(output)
-        # (bs, n_seq, d_hidn)
-        output = self.conv2(output).transpose(1, 2)  # B, WORD_LENGTH, Rep_DIM
+        # (bs, n_seq, n_head * d_head)
+        output = self.conv2(output).transpose(1, 2)  # output : (BS, WORD_LENGTH, Rep_DIM) = (BS, WORD_LEN, n_head * d_head)
         output = self.dropout(output)
-        # (bs, n_seq, d_hidn)
+        # (bs, n_seq, d_head * n_head)
         return output
 
 
