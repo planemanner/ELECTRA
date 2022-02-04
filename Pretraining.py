@@ -23,9 +23,10 @@ class EFF_GEN_LOSS(torch.nn.Module):
     def __init__(self):
         super(EFF_GEN_LOSS, self).__init__()
         self.criterion = torch.nn.CrossEntropyLoss()
+        
     def __call__(self, G_Logits, Masked_list, Labels):
         masked_g_logits = G_Logits[Masked_list, :]
-        masked_labels = Labels[Masked_list, :]
+        masked_labels = Labels[Masked_list]
         loss = self.criterion(masked_g_logits, masked_labels)
         return loss
     
@@ -61,10 +62,11 @@ def mask_token_filler(sampling_distribution, Generator_logits,
                       device, masked_tokens, masking_indices, labels):
 
     Generated_tokens = masked_tokens.clone()
+    Disc_labels = (masked_tokens == 103)
     sampled_tokens = sampler(Dist=sampling_distribution, logits=Generator_logits[masking_indices, :], device=device)
     Generated_tokens[masking_indices, :] = sampled_tokens
-
-    return Generated_tokens, torch.tensor(masking_indices, device=device).long()
+    Disc_labels = (Generated_tokens != labels)
+    return Generated_tokens, Disc_labels.float()
 
 
 def masking_seq(seq, mask_ratio=0.15):
@@ -105,8 +107,8 @@ def pretrain(args):
                     "d_hidn": 128,  # correct
                     "i_pad": 0,  # correct
                     "d_ff": 256,  # correct
-                    "n_head": 4,  # correct
-                    "d_head": 16,  # correct
+                    "n_head": 1,  # correct
+                    "d_head": 64,  # correct
                     "dropout": 0.1,  # correct
                     "layer_norm_epsilon": 1e-12  # correct
                     })
@@ -133,31 +135,13 @@ def pretrain(args):
     
     weight_sync(Generator.bert, Discriminator.bert)
 
-    criterion_D = torch.nn.CrossEntropyLoss()
+    criterion_D = torch.nn.BCELoss()
     criterion_G = EFF_GEN_LOSS()
 
-    if args.resume:
-        G_check_point = torch.load(args.G_ckpt_path, map_location='cpu')
-        D_check_point = torch.load(args.D_ckpt_path, map_location='cpu')
-        
-        Generator = Generator.to(args.device)
-        Discriminator = Discriminator.to(args.device)
-        Generator.load_state_dict(G_check_point["state_dict"])
-        Discriminator.load_state_dict(D_check_point["state_dict"])
-        
-        optimizer = torch.optim.Adam(params,
-                                     lr=args.lr,
-                                     weight_decay=args.wd,
-                                     eps=args.Adam_eps)
-        optimizer.load_state_dict(G_check_point["optimizer"])
-
-    else:
-#         Generator = torch.nn.DataParallel(Generator, device_ids=[0, 1, 2, 3, 4, 5]).cuda()
-#         Discriminator = torch.nn.DataParallel(Discriminator, device_ids=[0, 1, 2, 3, 4, 5]).cuda()
-        Generator=Generator.to(args.device)
-        Discriminator=Discriminator.to(args.device)
-        params = list(Generator.parameters())+list(Discriminator.parameters())
-        optimizer= torch.optim.Adam(params, lr=args.lr, weight_decay=args.wd, eps=args.Adam_eps)
+    Generator = Generator.to(args.device)
+    Discriminator = Discriminator.to(args.device)
+    params = list(Generator.parameters())+list(Discriminator.parameters())
+    optimizer = torch.optim.Adam(params, lr=args.lr, weight_decay=args.wd, eps=args.Adam_eps)
         
     train_dataset = LM_dataset(d_path=args.train_data_path)
 #     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
@@ -170,14 +154,11 @@ def pretrain(args):
                               shuffle=True, collate_fn=collator, num_workers=args.num_workers)
 
     Logger = SummaryWriter(log_dir=args.log_dir)
-    
-    if args.resume:
-        print("Resume training ! ")
-        Train_iter_cnt = D_check_point["optimizer"]['state'][0]['step']
-    else:
-        Train_iter_cnt = 0
+
+    Train_iter_cnt = 0
 
     print("Learning start !")
+
     for epoch in range(100):
         for i, seq_tokens in enumerate(train_loader):
             with torch.no_grad():
@@ -201,16 +182,13 @@ def pretrain(args):
                                                                   masked_tokens=masked_tokens,
                                                                   masking_indices=masked_lists, labels=seq_tokens)
             Disc_logits = Discriminator(Generated_tokens)
-            D_Loss = criterion_D(Disc_logits.view(-1, 2), Disc_labels.view(-1))
+            D_Loss = criterion_D(Disc_logits.view(-1), Disc_labels.view(-1))
             loss = G_LOSS + args.d_loss_weight * D_Loss
-#             torch.nn.utils.clip_grad_norm_(set(list(Generator.parameters()) + list(Discriminator.parameters())), 1)
-            torch.nn.utils.clip_grad_norm_(params, 1)
-    
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(params, 1)
             optimizer.step()
 #             gc.collect()
             torch.cuda.empty_cache()
-            
             with torch.no_grad():
                 
                 Logger.add_scalar(tag="G_Loss / Train",
@@ -234,11 +212,12 @@ def pretrain(args):
                 Train_iter_cnt += 1  
     Logger.close()
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lr", type=float, default=0.0000625)  # for 128 batch, 5e-4
-    parser.add_argument("--batch_size", type=int, default=16, help="Batch Size")
-    parser.add_argument("--wd", type=float, default=8e-2, help="weight decay")  # for 128 batch, 1e-2
+    parser.add_argument("--lr", type=float, default=1.25e-4)  # for 128 batch, 5e-4
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch Size")
+    parser.add_argument("--wd", type=float, default=1e-2, help="weight decay")  # for 128 batch, 1e-2
     parser.add_argument("--d_loss_weight", type=float, default=50)
     parser.add_argument("--Adam_eps", type=float, default=1e-6)
     parser.add_argument("--warm_up_steps", type=int, default=1e4, help="Based on iteration")
@@ -250,11 +229,6 @@ if __name__ == "__main__":
     parser.add_argument("--save_period", type=int, default=20000)
     parser.add_argument("--verbose_period", type=int, default=50)
     parser.add_argument("--num_workers", type=int, default=16)
-    parser.add_argument("--resume", action='store_true')
-    parser.add_argument("--D_ckpt_path", type=str,
-                        default="/vision/7032593/NLP/ELECTRA/check_points/DISC_ITER_190000_LM_MODEL.pth")
-    parser.add_argument("--G_ckpt_path", type=str,
-                        default="/vision/7032593/NLP/ELECTRA/check_points/GEN_ITER_190000_LM_MODEL.pth")
 
     args = parser.parse_args()
     pretrain(args)
