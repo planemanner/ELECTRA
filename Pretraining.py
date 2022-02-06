@@ -79,9 +79,10 @@ def masking_seq(seq, mask_ratio=0.15):
         tmp_idx = random.randint(1, (seq_len-1))
         if tmp_idx not in masking_list:
             masking_list += [tmp_idx]
-            
-    masked_tokens[masking_list] = 103
+
     masked_list = (masked_tokens != seq).tolist()
+    masked_tokens[masking_list] = 103
+    
     return masked_tokens, masked_list
 
 
