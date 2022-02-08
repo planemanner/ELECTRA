@@ -1,8 +1,6 @@
 from torch import nn
 import torch
 from .BasicModules import Encoder
-from data_related.utils import Config
-import yaml
 
 
 class BERT(nn.Module):
@@ -26,14 +24,14 @@ class ELECTRA_DISCRIMINATOR(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.bert = BERT(config)
-        self.projector = nn.Linear(config.d_head * config.n_head, config.d_hidn)
+        self.projector = nn.Linear(config.d_model, config.d_model)
         self.activation = nn.GELU()
-        self.discriminator = nn.Linear(config.d_hidn, 1, bias=False)
+        self.discriminator = nn.Linear(config.d_model, 1, bias=False)
         self.final_act = nn.Sigmoid()
 
-    def forward(self, inputs):
+    def forward(self, inputs, attn_mask):
         # (bs, n_enc_seq, d_hidn), (bs, d_hidn), [(bs, n_head, n_enc_seq, n_enc_seq)]
-        outputs, attn_probs = self.bert(inputs)
+        outputs, attn_probs = self.bert(inputs, attn_mask)
         # (bs, 2)
         outputs = self.projector(outputs)
         outputs = self.activation(outputs)
@@ -47,8 +45,10 @@ class ELECTRA_GENERATOR(nn.Module):
         super().__init__()
         self.bert = BERT(config)
         self.activation = torch.nn.GELU()
-        self.layer_norm = nn.LayerNorm(config.d_head * config.n_head, eps=config.layer_norm_epsilon)
-        self.language_model = nn.Linear(config.d_head * config.n_head, config.n_enc_vocab, bias=True)
+        self.layer_norm = nn.LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
+        self.language_model = nn.Linear(config.d_model, config.n_enc_vocab, bias=False)
+        self.language_model.weight.data.copy_(self.bert.encoder.enc_emb.weight.data)
+        self.language_model_bias = nn.Parameter(torch.zeros(config.n_enc_vocab))
         """
         Example.)
         입력 Sentence
@@ -60,12 +60,12 @@ class ELECTRA_GENERATOR(nn.Module):
           - 이 때, Generator 로부터 샘플링
         Generator 는 masked 된 곳의 token 을 Prediction (log from)
         """
-    def forward(self, inputs):
-        outputs, attn_probs = self.bert(inputs)
+    def forward(self, inputs, attn_mask):
+        outputs, attn_probs = self.bert(inputs, attn_mask)
         '''BERT output Shape : (BS, num_seq, d_head * n_head)'''
         outputs = self.activation(outputs)
         outputs = self.layer_norm(outputs)
-        lm_outs = self.language_model(outputs)
+        lm_outs = self.language_model(outputs) + self.language_model_bias
         # (BS, n_enc_seq, n_enc_vocab)
         return lm_outs
 

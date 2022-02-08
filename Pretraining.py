@@ -3,6 +3,7 @@ from data_related.utils import Config
 from data_related.Custom_dataloader import LM_dataset, LM_collater
 from torch.utils.data import DataLoader
 from Models.BERT import ELECTRA_GENERATOR, ELECTRA_DISCRIMINATOR, weight_sync
+from Models.BasicModules import get_attn_pad_mask
 import argparse
 from transformers import AutoTokenizer
 import random
@@ -62,7 +63,6 @@ def mask_token_filler(sampling_distribution, Generator_logits,
                       device, masked_tokens, masking_indices, labels):
 
     Generated_tokens = masked_tokens.clone()
-    Disc_labels = (masked_tokens == 103)
     sampled_tokens = sampler(Dist=sampling_distribution, logits=Generator_logits[masking_indices, :], device=device)
     Generated_tokens[masking_indices, :] = sampled_tokens
     Disc_labels = (Generated_tokens != labels)
@@ -82,7 +82,7 @@ def masking_seq(seq, mask_ratio=0.15):
 
     masked_list = (masked_tokens != seq).tolist()
     masked_tokens[masking_list] = 103
-    
+
     return masked_tokens, masked_list
 
 
@@ -105,7 +105,7 @@ def pretrain(args):
                     "n_enc_seq": 512,  # correct
                     "n_seg_type": 2,  # correct
                     "n_layer": 12,  # correct
-                    "d_hidn": 128,  # correct
+                    "d_model": 128,  # correct
                     "i_pad": 0,  # correct
                     "d_ff": 256,  # correct
                     "n_head": 1,  # correct
@@ -118,7 +118,7 @@ def pretrain(args):
                     "n_enc_seq": 512,  # correct
                     "n_seg_type": 2,  # correct
                     "n_layer": 12,  # correct
-                    "d_hidn": 128,  # correct
+                    "d_model": 128,  # correct
                     "i_pad": 0,  # correct
                     "d_ff": 1024,  # correct
                     "n_head": 4,  # correct

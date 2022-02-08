@@ -30,18 +30,21 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, config):
         super(MultiHeadAttention, self).__init__()
         self.n_head = config.n_head
-        self.W_Q = nn.Linear(config.n_head * config.d_head, config.n_head * config.d_head)
-        self.W_K = nn.Linear(config.n_head * config.d_head, config.n_head * config.d_head)
-        self.W_V = nn.Linear(config.n_head * config.d_head, config.n_head * config.d_head)
+        # self.W_Q = nn.Linear(config.n_head * config.d_head, config.n_head * config.d_head)
+        # self.W_K = nn.Linear(config.n_head * config.d_head, config.n_head * config.d_head)
+        # self.W_V = nn.Linear(config.n_head * config.d_head, config.n_head * config.d_head)
+        self.W_Q = nn.Linear(config.d_model, config.n_head * config.d_head)
+        self.W_K = nn.Linear(config.d_model, config.n_head * config.d_head)
+        self.W_V = nn.Linear(config.d_model, config.n_head * config.d_head)
 
         self.scaled_dot_attn = ScaledDotProductAttention(config)
-        self.linear = nn.Linear(config.n_head * config.d_head, config.n_head * config.d_head)
-        self.layer_norm = nn.LayerNorm(config.n_head * config.d_head, eps=config.layer_norm_epsilon)
+        self.linear = nn.Linear(config.n_head * config.d_head, config.d_model)
+        self.layer_norm = nn.LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
         self.dropout = nn.Dropout(config.dropout)
         # (bs, n_enc_seq, self.config.n_head * self.config.d_head)
 
     def forward(self, Q, K, V, attn_mask):
-        batch_size = Q.size(0)
+        Residual, batch_size = Q, Q.size(0)
         # (bs, n_head, n_q_seq, d_head)
         out_dim, in_dim = self.W_Q.weight.shape
         q_s = self.W_Q(Q).view(batch_size, -1, self.n_head, out_dim // self.n_head).transpose(1, 2)
@@ -57,12 +60,12 @@ class MultiHeadAttention(nn.Module):
 
         context, attn_prob = self.scaled_dot_attn(q_s, k_s, v_s, attn_mask)
         # (bs, n_head, n_q_seq, h_head * d_head)
-
+        # BS, -1, n_head * d_head
         context = context.transpose(1, 2).contiguous().view(batch_size, -1, out_dim)
 
         # (bs, n_head, n_q_seq, e_embd)
         output = self.linear(context)
-        output = self.layer_norm(output)
+        output = self.layer_norm(output + Residual)
         output = self.dropout(output)
         # (bs, n_q_seq, d_hidn), (bs, n_head, n_q_seq, n_k_seq)
 
@@ -73,22 +76,22 @@ class PoswiseFeedForwardNet(nn.Module):
     def __init__(self, config):
         super(PoswiseFeedForwardNet, self).__init__()
 
-        self.conv1 = nn.Conv1d(in_channels=config.d_head * config.n_head,
+        self.conv1 = nn.Conv1d(in_channels=config.d_model,
                                out_channels=config.d_ff, kernel_size=1)
         self.conv2 = nn.Conv1d(in_channels=config.d_ff,
-                               out_channels=config.n_head * config.d_head, kernel_size=1)
+                               out_channels=config.d_model, kernel_size=1)
         self.active = F.gelu
-        self.dropout = nn.Dropout(config.dropout)
+        self.layer_norm = nn.LayerNorm(config.d_model)
 
     def forward(self, inputs):
         # (bs, d_ff, n_seq)
+        residual = inputs
         output = self.conv1(inputs.transpose(1, 2))  # input 자체가 (bs, d_head * n_head, n_seq)
         output = self.active(output)
         # (bs, n_seq, n_head * d_head)
         output = self.conv2(output).transpose(1, 2)  # output : (BS, WORD_LENGTH, Rep_DIM) = (BS, WORD_LEN, n_head * d_head)
-        output = self.dropout(output)
-        # (bs, n_seq, d_head * n_head)
-        return output
+        output += residual
+        return self.layer_norm(output)
 
 
 class EncoderLayer(nn.Module):
@@ -96,18 +99,14 @@ class EncoderLayer(nn.Module):
         super(EncoderLayer, self).__init__()
 
         self.self_attn = MultiHeadAttention(config)
-        self.layer_norm1 = nn.LayerNorm(config.d_head * config.n_head, eps=config.layer_norm_epsilon)
         self.pos_ffn = PoswiseFeedForwardNet(config)
-        self.layer_norm2 = nn.LayerNorm(config.n_head * config.d_head, eps=config.layer_norm_epsilon)
 
     def forward(self, inputs, attn_mask):
         # (bs, n_enc_seq, d_hidn), (bs, n_head, n_enc_seq, n_enc_seq)
         att_outputs, attn_prob = self.self_attn(inputs, inputs, inputs, attn_mask)
         '''-> bs, n_enc_seq, -1'''
-        att_outputs = self.layer_norm1(inputs + att_outputs)
         # (bs, n_enc_seq, d_hidn)
-        ffn_outputs = self.pos_ffn(att_outputs)
-        outputs = self.layer_norm2(ffn_outputs + att_outputs)
+        outputs = self.pos_ffn(att_outputs)
         # (bs, n_enc_seq, d_hidn), (bs, n_head, n_enc_seq, n_enc_seq)
         return outputs, attn_prob
 
@@ -116,16 +115,15 @@ class Encoder(nn.Module):
     def __init__(self, config):
         super(Encoder, self).__init__()
 
-        self.enc_emb = nn.Embedding(config.n_enc_vocab, config.d_hidn)
-        self.pos_emb = nn.Embedding(config.n_enc_seq + 1, config.d_hidn)
-
-        self.embeddings_project = nn.Linear(config.d_hidn, config.n_head * config.d_head)
+        self.enc_emb = nn.Embedding(config.n_enc_vocab, config.d_model)
+        self.pos_emb = nn.Embedding(config.n_enc_seq, config.d_model)
+        self.layer_norm = nn.LayerNorm(config.d_model)
 
         self.layers = nn.ModuleList([EncoderLayer(config) for _ in range(config.n_layer)])
-        self.get_attention_mask = get_attn_pad_mask()
+        # self.get_attention_mask = get_attn_pad_mask()
         self.pad_idx = config.i_pad
 
-    def forward(self, inputs):
+    def forward(self, inputs, attn_mask):
         positions = torch.arange(inputs.size(1),
                                  device=inputs.device,
                                  dtype=inputs.dtype).expand(inputs.size(0),
@@ -136,11 +134,11 @@ class Encoder(nn.Module):
 
         # (bs, n_enc_seq, d_hidn)
         outputs = self.enc_emb(inputs) + self.pos_emb(positions)
+        outputs = self.layer_norm(outputs)
         # (bs, n_enc_seq, self.config.n_head * self.config.d_head)
-        outputs = self.embeddings_project(outputs)
 
         # (bs, n_enc_seq, n_enc_seq)
-        attn_mask = self.get_attention_mask(inputs, inputs, self.pad_idx)
+        # attn_mask = self.get_attention_mask(inputs, inputs, self.pad_idx)
 
         attn_probs = []
         for idx, layer in enumerate(self.layers):
