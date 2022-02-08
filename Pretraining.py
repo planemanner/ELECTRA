@@ -58,15 +58,17 @@ def model_save(model, optimizer, root_dir, cur_iter, model_type):
     print(f"\n Trained model is saved at {save_path} \n")
 
 
-# def sampler(Dist, logits, device):
-#     Gumbel = Dist.sample(logits.shape).to(device)
-#     return (logits.float() + Gumbel).argmax(dim=-1)
+def sampler(Dist, logits, device):
+    Gumbel = Dist.sample(logits.shape).to(device)
+    return (logits.float() + Gumbel).argmax(dim=-1)
 
 
-def mask_token_filler(Generator_logits, device, masked_tokens, masking_indices, labels):
+def mask_token_filler(dist, Generator_logits, device, masked_tokens, masking_indices, labels):
 
     Generated_tokens = masked_tokens.clone()
-    Generated_tokens[masking_indices] = gumbel_softmax(Generator_logits[masking_indices, :], hard=True).argmax(-1)
+    sampled_tks = sampler(dist, Generator_logits[masking_indices, :], device)
+#     Generated_tokens[masking_indices] = gumbel_softmax(Generator_logits[masking_indices, :], hard=True).argmax(-1)
+    Generated_tokens[masking_indices] = sampled_tks
     Disc_labels = (Generated_tokens != labels)
     return Generated_tokens, Disc_labels.float()
 
@@ -101,6 +103,12 @@ def batch_wise_masking(tokens, mask_ratio=0.163):
     return torch.stack(masked_outputs), masked_lists
 
 
+def train_gen(dataloader):
+    while True:
+        for seqs in enumerate(dataloader):
+            yield seqs
+
+            
 def pretrain(args):
     # d_hidn=d_head*n_head
     G_cfg = Config({"n_enc_vocab": 30522,  # correct
@@ -130,7 +138,7 @@ def pretrain(args):
                     })
 
     # train_loader = DataLoader(dataset, args.batch_size, shuffle=True, collate_fn=pretrin_collate_fn)
-
+    dist = torch.distributions.gumbel.Gumbel(0, 1)
     Generator = ELECTRA_GENERATOR(config=G_cfg)
 
     Discriminator = ELECTRA_DISCRIMINATOR(config=D_cfg)
@@ -160,59 +168,64 @@ def pretrain(args):
     Train_iter_cnt = 0
     get_attn_mask = get_attn_pad_mask()
     print("Learning start !")
+    data_iter = iter(train_loader)
+    for i in range(args.total_iteration):
+        with torch.no_grad():
+            if Train_iter_cnt < args.warm_up_steps:
+                lr_warmup(optimizer=optimizer, tgt_init_lr=args.lr, cur_iter=Train_iter_cnt, warm_iter = args.warm_up_steps)
+            else:
+                lr_decay(optimizer=optimizer, init_lr=args.lr, cur_iter=Train_iter_cnt, max_iter=args.total_iteration, warm_iter = args.warm_up_steps)
+        
+        try:
+            seq_tokens = next(data_iter)
+        except StopIteration:
+            data_iter = iter(train_loader)
+            seq_tokens = next(data_iter)
+            
+        optimizer.zero_grad()
+        seq_tokens = seq_tokens.to(args.device)
+        attn_mask = get_attn_mask(seq_tokens, seq_tokens, 0)
+        non_pad = (seq_tokens != 0)
+        with torch.no_grad():
+            masked_tokens, masked_lists = batch_wise_masking(seq_tokens)
 
-    while Train_iter_cnt < args.total_iteration:
-        for i, seq_tokens in enumerate(train_loader):
-            with torch.no_grad():
-                if Train_iter_cnt < args.warm_up_steps:
-                    lr_warmup(optimizer=optimizer, tgt_init_lr=args.lr, cur_iter=Train_iter_cnt, warm_iter = args.warm_up_steps)
-                else:
-                    lr_decay(optimizer=optimizer, init_lr=args.lr, cur_iter=Train_iter_cnt, max_iter=args.total_iteration, warm_iter = args.warm_up_steps)
+        Generated_Logits = Generator(masked_tokens, attn_mask)
+        G_LOSS = criterion_G(G_Logits=Generated_Logits, Masked_list=masked_lists, Labels=seq_tokens)
+        # 반면에 Discriminator 는 전체를 봄
+        with torch.no_grad():
+            Generated_tokens, Disc_labels = mask_token_filler(dist=dist, Generator_logits=Generated_Logits, 
+                                                              device=args.device, masked_tokens=masked_tokens, 
+                                                              masking_indices=masked_lists, labels=seq_tokens)
 
-            optimizer.zero_grad()
-            seq_tokens = seq_tokens.to(args.device)
-            attn_mask = get_attn_mask(seq_tokens, seq_tokens, 0)
-            non_pad = (seq_tokens != 0)
-            with torch.no_grad():
-                masked_tokens, masked_lists = batch_wise_masking(seq_tokens)
+        Disc_logits = Discriminator(Generated_tokens, attn_mask).squeeze()
+        D_Loss = criterion_D(Disc_logits.masked_select(non_pad), Disc_labels.masked_select(non_pad))
+        loss = G_LOSS + args.d_loss_weight * D_Loss
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(params, 1)
+        optimizer.step()
+#         gc.collect()
+        torch.cuda.empty_cache()
+        Train_iter_cnt += 1
+        with torch.no_grad():
 
-            Generated_Logits = Generator(masked_tokens, attn_mask)
-            G_LOSS = criterion_G(G_Logits=Generated_Logits, Masked_list=masked_lists, Labels=seq_tokens)
-            # 반면에 Discriminator 는 전체를 봄
-            with torch.no_grad():
-                Generated_tokens, Disc_labels = mask_token_filler(Generator_logits=Generated_Logits, device=args.device,
-                                                                  masked_tokens=masked_tokens, masking_indices=masked_lists, 
-                                                                  labels=seq_tokens)
-                
-            Disc_logits = Discriminator(Generated_tokens, attn_mask).squeeze()
-            D_Loss = criterion_D(Disc_logits.masked_select(non_pad), Disc_labels.masked_select(non_pad))
-            loss = G_LOSS + args.d_loss_weight * D_Loss
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(params, 1)
-            optimizer.step()
-#             gc.collect()
-            torch.cuda.empty_cache()
-            with torch.no_grad():
-                
-                Logger.add_scalar(tag="G_Loss / Train",
-                                  scalar_value=G_LOSS.item(),
-                                  global_step=Train_iter_cnt)
-                Logger.add_scalar(tag="D_Loss / Train",
-                                  scalar_value=D_Loss.item(),
-                                  global_step=Train_iter_cnt)
-                
-                if ((Train_iter_cnt+1) % args.save_period) == 0:
-                    print("Start to save a checkpoint....")
-                    model_save(model=Discriminator, optimizer=optimizer,
-                               root_dir=args.model_save, cur_iter=Train_iter_cnt, model_type="DISC")
-                    model_save(model=Generator, optimizer=optimizer,
-                               root_dir=args.model_save, cur_iter=Train_iter_cnt, model_type="GEN")
-                    print("Done !!!")
-                    
-                if ((Train_iter_cnt + 1) % args.verbose_period) == 0:
-                    print(f"ITER : {str(Train_iter_cnt + 1).zfill(6)}, G_LOSS : {G_LOSS.item()}, D_LOSS : {D_Loss.item()}")
-                    
-                Train_iter_cnt += 1  
+            Logger.add_scalar(tag="G_Loss / Train",
+                              scalar_value=G_LOSS.item(),
+                              global_step=Train_iter_cnt)
+            Logger.add_scalar(tag="D_Loss / Train",
+                              scalar_value=D_Loss.item(),
+                              global_step=Train_iter_cnt)
+
+            if ((Train_iter_cnt+1) % args.save_period) == 0:
+                print("Start to save a checkpoint....")
+                model_save(model=Discriminator, optimizer=optimizer,
+                           root_dir=args.model_save, cur_iter=Train_iter_cnt, model_type="DISC")
+                model_save(model=Generator, optimizer=optimizer,
+                           root_dir=args.model_save, cur_iter=Train_iter_cnt, model_type="GEN")
+                print("Done !!!")
+
+            if ((Train_iter_cnt + 1) % args.verbose_period) == 0:
+                print(f"ITER : {str(Train_iter_cnt + 1).zfill(6)}, G_LOSS : {G_LOSS.item()}, D_LOSS : {D_Loss.item()}")
+
     Logger.close()
 
 
