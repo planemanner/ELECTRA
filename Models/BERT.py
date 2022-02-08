@@ -11,9 +11,9 @@ class BERT(nn.Module):
 
         # (bs, n_enc_seq, d_hidn)
 
-    def forward(self, inputs):
+    def forward(self, inputs, attn_mask):
         # (bs, n_seq, d_hidn), [(bs, n_head, n_enc_seq, n_enc_seq)]
-        outputs, self_attn_probs = self.encoder(inputs)
+        outputs, self_attn_probs = self.encoder(inputs, attn_mask)
         # (bs, d_hidn)
 
         # (bs, n_enc_seq, n_enc_vocab), (bs, d_hidn), [(bs, n_head, n_enc_seq, n_enc_seq)]
@@ -22,7 +22,7 @@ class BERT(nn.Module):
 
 class ELECTRA_DISCRIMINATOR(nn.Module):
     def __init__(self, config):
-        super().__init__()
+        super(ELECTRA_DISCRIMINATOR, self).__init__()
         self.bert = BERT(config)
         self.projector = nn.Linear(config.d_model, config.d_model)
         self.activation = nn.GELU()
@@ -42,13 +42,12 @@ class ELECTRA_DISCRIMINATOR(nn.Module):
 
 class ELECTRA_GENERATOR(nn.Module):
     def __init__(self, config):
-        super().__init__()
+        super(ELECTRA_GENERATOR, self).__init__()
         self.bert = BERT(config)
         self.activation = torch.nn.GELU()
         self.layer_norm = nn.LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
         self.language_model = nn.Linear(config.d_model, config.n_enc_vocab, bias=False)
-        self.language_model.weight.data.copy_(self.bert.encoder.enc_emb.weight.data)
-        self.language_model_bias = nn.Parameter(torch.zeros(config.n_enc_vocab))
+        self.language_model.weight = self.bert.encoder.enc_emb.weight
         """
         Example.)
         입력 Sentence
@@ -63,15 +62,15 @@ class ELECTRA_GENERATOR(nn.Module):
     def forward(self, inputs, attn_mask):
         outputs, attn_probs = self.bert(inputs, attn_mask)
         '''BERT output Shape : (BS, num_seq, d_head * n_head)'''
-        outputs = self.activation(outputs)
         outputs = self.layer_norm(outputs)
-        lm_outs = self.language_model(outputs) + self.language_model_bias
+        outputs = self.activation(outputs)
+        lm_outs = self.language_model(outputs)
         # (BS, n_enc_seq, n_enc_vocab)
         return lm_outs
 
 
 def weight_sync(src_model, tgt_model):
-    tgt_model.encoder.enc_emb.weight.data.copy_(src_model.encoder.enc_emb.weight.data)
-    tgt_model.encoder.pos_emb.weight.data.copy_(src_model.encoder.pos_emb.weight.data)
+    tgt_model.encoder.enc_emb=src_model.encoder.enc_emb
+    tgt_model.encoder.pos_emb=src_model.encoder.pos_emb
 
 

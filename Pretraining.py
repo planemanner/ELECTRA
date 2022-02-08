@@ -10,6 +10,7 @@ import random
 from torch.utils.tensorboard import SummaryWriter
 import os
 import gc
+from torch.nn.functional import gumbel_softmax
 
 
 def GPU_MEMORY_CHECK(status):
@@ -32,15 +33,18 @@ class EFF_GEN_LOSS(torch.nn.Module):
         return loss
     
     
-def lr_warmup(optimizer, tgt_init_lr, cur_iter, max_iter=10000):
-    warm_lr = tgt_init_lr / (max_iter - cur_iter + 1)
-    optimizer.param_groups[0]['lr'] = warm_lr
+def lr_warmup(optimizer, tgt_init_lr, cur_iter, warm_iter=10000):
+    fraction = (cur_iter+1) / warm_iter
+    warm_lr = tgt_init_lr * fraction
+    for param in optimizer.param_groups:
+        param['lr'] = warm_lr
 
 
-def lr_decay(optimizer, init_lr, cur_iter, max_iter):
-    fraction = init_lr / max_iter
-    decayed_lr = init_lr - fraction * cur_iter
-    optimizer.param_groups[0]['lr'] = decayed_lr
+def lr_decay(optimizer, init_lr, cur_iter, max_iter, warm_iter=10000):
+    fraction = (cur_iter - warm_iter + 1) / (max_iter - warm_iter)
+    decayed_lr = init_lr - fraction * init_lr
+    for param in optimizer.param_groups:
+        param['lr'] = decayed_lr
 
 
 def model_save(model, optimizer, root_dir, cur_iter, model_type):
@@ -54,17 +58,15 @@ def model_save(model, optimizer, root_dir, cur_iter, model_type):
     print(f"\n Trained model is saved at {save_path} \n")
 
 
-def sampler(Dist, logits, device):
-    Gumbel = Dist.sample(logits.shape).to(device)
-    return (logits.float() + Gumbel).argmax(dim=-1)
+# def sampler(Dist, logits, device):
+#     Gumbel = Dist.sample(logits.shape).to(device)
+#     return (logits.float() + Gumbel).argmax(dim=-1)
 
 
-def mask_token_filler(sampling_distribution, Generator_logits,
-                      device, masked_tokens, masking_indices, labels):
+def mask_token_filler(Generator_logits, device, masked_tokens, masking_indices, labels):
 
     Generated_tokens = masked_tokens.clone()
-    sampled_tokens = sampler(Dist=sampling_distribution, logits=Generator_logits[masking_indices, :], device=device)
-    Generated_tokens[masking_indices, :] = sampled_tokens
+    Generated_tokens[masking_indices] = gumbel_softmax(Generator_logits[masking_indices, :], hard=True).argmax(-1)
     Disc_labels = (Generated_tokens != labels)
     return Generated_tokens, Disc_labels.float()
 
@@ -79,10 +81,10 @@ def masking_seq(seq, mask_ratio=0.15):
         tmp_idx = random.randint(1, (seq_len-1))
         if tmp_idx not in masking_list:
             masking_list += [tmp_idx]
-
-    masked_list = (masked_tokens != seq).tolist()
+            
     masked_tokens[masking_list] = 103
-
+    masked_list = (masked_tokens != seq).tolist()
+    
     return masked_tokens, masked_list
 
 
@@ -128,7 +130,6 @@ def pretrain(args):
                     })
 
     # train_loader = DataLoader(dataset, args.batch_size, shuffle=True, collate_fn=pretrin_collate_fn)
-    Gumbel_Distribution = torch.distributions.gumbel.Gumbel(0, 1)
 
     Generator = ELECTRA_GENERATOR(config=G_cfg)
 
@@ -157,33 +158,34 @@ def pretrain(args):
     Logger = SummaryWriter(log_dir=args.log_dir)
 
     Train_iter_cnt = 0
-
+    get_attn_mask = get_attn_pad_mask()
     print("Learning start !")
 
-    for epoch in range(100):
+    while Train_iter_cnt < args.total_iteration:
         for i, seq_tokens in enumerate(train_loader):
             with torch.no_grad():
-                if Train_iter_cnt < 10000:
-                    lr_warmup(optimizer=optimizer, tgt_init_lr=args.lr, cur_iter=Train_iter_cnt)
+                if Train_iter_cnt < args.warm_up_steps:
+                    lr_warmup(optimizer=optimizer, tgt_init_lr=args.lr, cur_iter=Train_iter_cnt, warm_iter = args.warm_up_steps)
                 else:
-                    lr_decay(optimizer=optimizer, init_lr=args.lr, cur_iter=Train_iter_cnt, max_iter=args.total_iteration)
+                    lr_decay(optimizer=optimizer, init_lr=args.lr, cur_iter=Train_iter_cnt, max_iter=args.total_iteration, warm_iter = args.warm_up_steps)
 
-            seq_tokens = seq_tokens.to(args.device)
             optimizer.zero_grad()
-
+            seq_tokens = seq_tokens.to(args.device)
+            attn_mask = get_attn_mask(seq_tokens, seq_tokens, 0)
+            non_pad = (seq_tokens != 0)
             with torch.no_grad():
                 masked_tokens, masked_lists = batch_wise_masking(seq_tokens)
 
-            Generated_Logits = Generator(masked_tokens)
+            Generated_Logits = Generator(masked_tokens, attn_mask)
             G_LOSS = criterion_G(G_Logits=Generated_Logits, Masked_list=masked_lists, Labels=seq_tokens)
             # 반면에 Discriminator 는 전체를 봄
             with torch.no_grad():
-                Generated_tokens, Disc_labels = mask_token_filler(sampling_distribution=Gumbel_Distribution,
-                                                                  Generator_logits=Generated_Logits, device=args.device,
-                                                                  masked_tokens=masked_tokens,
-                                                                  masking_indices=masked_lists, labels=seq_tokens)
-            Disc_logits = Discriminator(Generated_tokens)
-            D_Loss = criterion_D(Disc_logits.view(-1), Disc_labels.view(-1))
+                Generated_tokens, Disc_labels = mask_token_filler(Generator_logits=Generated_Logits, device=args.device,
+                                                                  masked_tokens=masked_tokens, masking_indices=masked_lists, 
+                                                                  labels=seq_tokens)
+                
+            Disc_logits = Discriminator(Generated_tokens, attn_mask).squeeze()
+            D_Loss = criterion_D(Disc_logits.masked_select(non_pad), Disc_labels.masked_select(non_pad))
             loss = G_LOSS + args.d_loss_weight * D_Loss
             loss.backward()
             torch.nn.utils.clip_grad_norm_(params, 1)
@@ -221,7 +223,7 @@ if __name__ == "__main__":
     parser.add_argument("--wd", type=float, default=1e-2, help="weight decay")  # for 128 batch, 1e-2
     parser.add_argument("--d_loss_weight", type=float, default=50)
     parser.add_argument("--Adam_eps", type=float, default=1e-6)
-    parser.add_argument("--warm_up_steps", type=int, default=1e4, help="Based on iteration")
+    parser.add_argument("--warm_up_steps", type=int, default=10000, help="Based on iteration")
     parser.add_argument("--total_iteration", type=int, default=1000000)
     parser.add_argument("--train_data_path", type=str, default="./merged_lm.txt")
     parser.add_argument("--device", type=str, default="cuda:0")
