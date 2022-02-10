@@ -1,76 +1,170 @@
 from torch import nn
 import torch
 from .BasicModules import Encoder
+from torch.nn.functional import log_softmax
+import random
 
+
+def mask_tokens(inputs, mask_token_index, vocab_size, special_token_indices, mlm_probability=0.15, replace_prob=0.1,
+                orginal_prob=0.1, ignore_index=-100):
+    """
+    Prepare masked tokens inputs/labels for masked language modeling: (1-replace_prob-orginal_prob)% MASK, replace_prob% random, orginal_prob% original within mlm_probability% of tokens in the sentence.
+    * ignore_index in nn.CrossEntropy is default to -100, so you don't need to specify ignore_index in loss
+    """
+
+    device = inputs.device
+    labels = inputs.clone()
+
+    # Get positions to apply mlm (mask/replace/not changed). (mlm_probability)
+    probability_matrix = torch.full(labels.shape, mlm_probability, device=device)
+    special_tokens_mask = torch.full(inputs.shape, False, dtype=torch.bool, device=device)
+    for sp_id in special_token_indices:
+        special_tokens_mask = special_tokens_mask | (inputs == sp_id)
+    probability_matrix.masked_fill_(special_tokens_mask, value=0.0)
+    mlm_mask = torch.bernoulli(probability_matrix).bool()
+    labels[~mlm_mask] = ignore_index  # We only compute loss on mlm applied tokens
+
+    # mask  (mlm_probability * (1-replace_prob-orginal_prob))
+    mask_prob = 1 - replace_prob - orginal_prob
+    mask_token_mask = torch.bernoulli(torch.full(labels.shape, mask_prob, device=device)).bool() & mlm_mask
+    inputs[mask_token_mask] = mask_token_index
+
+    # replace with a random token (mlm_probability * replace_prob)
+    if int(replace_prob) != 0:
+        rep_prob = replace_prob / (replace_prob + orginal_prob)
+        replace_token_mask = torch.bernoulli(
+            torch.full(labels.shape, rep_prob, device=device)).bool() & mlm_mask & ~mask_token_mask
+        random_words = torch.randint(vocab_size, labels.shape, dtype=torch.long, device=device)
+        inputs[replace_token_mask] = random_words[replace_token_mask]
+
+    # do nothing (mlm_probability * orginal_prob)
+    pass
+
+    return inputs, labels, mlm_mask
+
+
+def sampler(Dist, logits, device):
+    Gumbel = Dist.sample(logits.shape).to(device)
+    return (logits.float() + Gumbel).argmax(dim=-1)
+
+
+def mask_token_filler(dist, Generator_logits, device, masked_tokens, masking_indices, labels):
+    Generated_tokens = masked_tokens.clone()
+    sampled_tks = sampler(dist, Generator_logits[masking_indices, :], device)
+    #     Generated_tokens[masking_indices] = gumbel_softmax(Generator_logits[masking_indices, :], hard=True).argmax(-1)
+    Generated_tokens[masking_indices, :] = sampled_tks
+    Disc_labels = (Generated_tokens != labels)
+    return Generated_tokens, Disc_labels.float()
+
+
+def masking_seq(seq, mask_ratio=0.15):
+    len_with_pad = len(seq)
+    seq_len = len_with_pad - (seq.eq(0).sum() + 2)  # sos, eos is denoted by 2 and pad is the other
+    masking_list = []
+    mask_size = int(seq_len * mask_ratio)
+    masked_tokens = seq.clone()
+    for _ in range(mask_size):
+        tmp_idx = random.randint(1, (seq_len - 1))
+        if tmp_idx not in masking_list:
+            masking_list += [tmp_idx]
+
+    masked_tokens[masking_list] = 103
+    masked_list = (masked_tokens != seq).tolist()
+
+    return masked_tokens, masked_list
+
+
+def batch_wise_masking(tokens, mask_ratio=0.163):
+    # mask_ratio is empirically determined by examining thousand times to meet 15 % in every iteration
+    # tokens shape is : (BS, Num Pos)
+    masked_outputs = []
+    masked_lists = []
+    for tok in tokens:
+        masked_tks, masked_list = masking_seq(tok, mask_ratio)  # Tensor format
+        masked_outputs += [masked_tks]
+        masked_lists += [masked_list]
+
+    return torch.stack(masked_outputs), masked_lists
 
 class BERT(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, device):
         super(BERT, self).__init__()
+        self.encoder = Encoder(config, device=device)
 
-        self.encoder = Encoder(config)
-
-        # (bs, n_enc_seq, d_hidn)
-
-    def forward(self, inputs, attn_mask):
-        # (bs, n_seq, d_hidn), [(bs, n_head, n_enc_seq, n_enc_seq)]
-        outputs, self_attn_probs = self.encoder(inputs, attn_mask)
-        # (bs, d_hidn)
-
-        # (bs, n_enc_seq, n_enc_vocab), (bs, d_hidn), [(bs, n_head, n_enc_seq, n_enc_seq)]
-        return outputs, self_attn_probs
+    def forward(self, inputs):
+        outputs = self.encoder(inputs)
+        return outputs
 
 
 class ELECTRA_DISCRIMINATOR(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, device):
         super(ELECTRA_DISCRIMINATOR, self).__init__()
-        self.bert = BERT(config)
-        self.projector = nn.Linear(config.d_model, config.d_model)
+        self.bert = BERT(config, device)
+        self.projector = nn.Linear(config.d_head * config.n_head
+                                   , config.d_model)
         self.activation = nn.GELU()
         self.discriminator = nn.Linear(config.d_model, 1, bias=False)
-        self.final_act = nn.Sigmoid()
 
-    def forward(self, inputs, attn_mask):
-        # (bs, n_enc_seq, d_hidn), (bs, d_hidn), [(bs, n_head, n_enc_seq, n_enc_seq)]
-        outputs, attn_probs = self.bert(inputs, attn_mask)
-        # (bs, 2)
+    def forward(self, inputs):
+        outputs = self.bert(inputs)
         outputs = self.projector(outputs)
         outputs = self.activation(outputs)
-        cls_logit = self.discriminator(outputs)
-
-        return self.final_act(cls_logit)
+        outputs = self.discriminator(outputs)
+        return outputs.squeeze()
 
 
 class ELECTRA_GENERATOR(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, device):
         super(ELECTRA_GENERATOR, self).__init__()
-        self.bert = BERT(config)
+        self.bert = BERT(config, device=device)
         self.activation = torch.nn.GELU()
-        self.layer_norm = nn.LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
+        self.projection = nn.Linear(config.d_head * config.n_head, config.d_model)
         self.language_model = nn.Linear(config.d_model, config.n_enc_vocab, bias=False)
-        self.language_model.weight = self.bert.encoder.enc_emb.weight
-        """
-        Example.)
-        입력 Sentence
-        - She is a lovely person who has powerful energy and delightful
-        Step.1) Tokenization : 5  [MASK] 7 8 9 10 11 12 13 [MASK] 15
-          - Mask Ratio 는 전체 길이의 15 % uniform 이라 하는데, 다른 분포가 좋을 것 같긴 함
-          - 어쨌든 실험은 공평하게 해야하기에 Uniform distribution 에서 뽑아오기 
-        Step.2) Replacement : 5  22 7 8 9 10 11 12 13 34 15 
-          - 이 때, Generator 로부터 샘플링
-        Generator 는 masked 된 곳의 token 을 Prediction (log from)
-        """
-    def forward(self, inputs, attn_mask):
-        outputs, attn_probs = self.bert(inputs, attn_mask)
-        '''BERT output Shape : (BS, num_seq, d_head * n_head)'''
-        outputs = self.layer_norm(outputs)
+        self.language_model.weight = self.bert.encoder.token_embedding.weight
+
+    def forward(self, inputs):
+        bs, num_pos = inputs.shape
+        outputs = self.bert(inputs)
+        outputs = self.projection(outputs)
         outputs = self.activation(outputs)
-        lm_outs = self.language_model(outputs)
-        # (BS, n_enc_seq, n_enc_vocab)
-        return lm_outs
+        outputs = self.language_model(outputs.view(bs * num_pos, -1)).view(bs, num_pos, -1)
+        return log_softmax(outputs, dim=2)
+
+
+class ELECTRA_MODEL(nn.Module):
+    def __init__(self, D_config, G_config, device):
+        super(ELECTRA_MODEL, self).__init__()
+        self.discriminator = ELECTRA_DISCRIMINATOR(D_config, device)
+        self.generator = ELECTRA_GENERATOR(G_config, device)
+        self.distribution = torch.distributions.gumbel.Gumbel(0, 1)
+        self.device = device
+        self.cfg = G_config
+        weight_sync(self.generator, self.discriminator)
+
+    def forward(self, seq_tokens):
+        """
+        ['[UNK]', '[SEP]', '[PAD]', '[CLS]', '[MASK]']
+        [100, 102, 0, 101, 103]
+        """
+        masked_tokens, masked_labels, replace_mask = mask_tokens(inputs=seq_tokens, mask_token_index=103,
+                                                                 vocab_size=self.cfg.n_enc_vocab,
+                                                                 special_token_indices=[100, 102, 0, 101, 103])
+        g_logits = self.generator(masked_tokens)
+        m_g_logits = g_logits[replace_mask, :]
+        with torch.no_grad():
+            sampled_tokens = sampler(Dist=self.distribution, logits=m_g_logits, device=self.device)
+            generated_tokens = masked_tokens.clone()
+            generated_tokens[replace_mask] = sampled_tokens
+            disc_labels = replace_mask.clone()
+            disc_labels[replace_mask] = (sampled_tokens != masked_labels[replace_mask])
+
+        disc_logits = self.discriminator(generated_tokens)
+
+        return m_g_logits, disc_logits, replace_mask, disc_labels.float(), masked_labels
 
 
 def weight_sync(src_model, tgt_model):
-    tgt_model.encoder.enc_emb=src_model.encoder.enc_emb
-    tgt_model.encoder.pos_emb=src_model.encoder.pos_emb
+    tgt_model.bert.encoder.token_embedding.weight = src_model.bert.encoder.token_embedding.weight
+
 
 

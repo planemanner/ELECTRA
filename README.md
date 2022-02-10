@@ -1,8 +1,7 @@
 # Info
-  - I referred to [paul-hyun's Code](https://paul-hyun.github.io/bert-01/) for understanding BERT model for korean.
   - For computational efficiency, I aim to train BERT-SMALL(described by [ELECTRA, ICLR 2020](https://arxiv.org/pdf/2003.10555.pdf)) 
     and I will use ELECTRA FRAMEWORK rather than vanilla BERT MLM task for pretraining
-  - I also referred to [richarddwang's repository](https://github.com/richarddwang/electra_pytorch) for implementation.  
+  - I referred to [richarddwang's repository](https://github.com/richarddwang/electra_pytorch) for implementation.  
   - Ultimately, I will point out which are good hyperparameters for BERT's series at least BERT-SMALL case.
   - In brief, this repository aims to do the implementation of ELECTRA.
 # About ELECTRA
