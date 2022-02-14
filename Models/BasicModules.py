@@ -93,7 +93,7 @@ class Encoder(nn.Module):
         self.token_embedding = nn.Embedding(config.n_enc_vocab, config.d_model)
         self.pos_embedding = nn.Embedding(config.n_enc_seq + 1, config.d_model)
         self.intermediate = nn.Linear(config.d_model, config.d_head * config.n_head)
-
+        self.dropout = nn.Dropout(config.dropout)
         layers = []
 
         for i in range(config.n_layer):
@@ -107,9 +107,10 @@ class Encoder(nn.Module):
     def forward(self, inputs):
         tokens = self.token_embedding(inputs)
         b, t, e = tokens.size()
-        positions = self.pos_embedding(torch.arange(t, device=self.device))[None, :, :].expand(b, t, e)
 
-        x = self.intermediate(tokens + positions)
+        positions = self.pos_embedding(torch.arange(t, device=self.device))[None, :, :].expand(b, t, e)
+        x = self.dropout(tokens + positions)
+        x = self.intermediate(x)
         x = self.layers(x)
 
         return x

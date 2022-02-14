@@ -3,6 +3,7 @@ import torch
 from .BasicModules import Encoder
 from torch.nn.functional import log_softmax
 import random
+from torch.nn.functional import gumbel_softmax
 
 
 def mask_tokens(inputs, mask_token_index, vocab_size, special_token_indices, mlm_probability=0.15, replace_prob=0.1,
@@ -86,11 +87,26 @@ def batch_wise_masking(tokens, mask_ratio=0.163):
 
     return torch.stack(masked_outputs), masked_lists
 
+
 class BERT(nn.Module):
     def __init__(self, config, device):
         super(BERT, self).__init__()
         self.encoder = Encoder(config, device=device)
-
+        self._init_weights()
+        
+    def _init_weights(self):
+        modules = self.encoder.modules()
+        for m in modules:
+            if isinstance(m, nn.Linear):
+                m.weight.data.normal_(mean=0, std=0.02)
+            elif isinstance(m, nn.Embedding):
+                m.weight.data.normal_(mean=0, std=0.02)
+            elif isinstance(m, nn.LayerNorm):
+                m.bias.data.zero_()
+                m.weight.data.fill_(1.0)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                m.bias.data.zero_()
+    
     def forward(self, inputs):
         outputs = self.encoder(inputs)
         return outputs
@@ -101,25 +117,27 @@ class ELECTRA_DISCRIMINATOR(nn.Module):
         super(ELECTRA_DISCRIMINATOR, self).__init__()
         self.bert = BERT(config, device)
         self.projector = nn.Linear(config.d_head * config.n_head
-                                   , config.d_model)
-        self.activation = nn.GELU()
-        self.discriminator = nn.Linear(config.d_model, 1, bias=False)
+                                   , config.d_head * config.n_head)
+        self.activation = nn.ReLU()
+        self.discriminator = nn.Linear(config.d_head * config.n_head, 1)
 
     def forward(self, inputs):
+        bs, num_pos = inputs.shape
         outputs = self.bert(inputs)
         outputs = self.projector(outputs)
         outputs = self.activation(outputs)
-        outputs = self.discriminator(outputs)
-        return outputs.squeeze()
+        outputs = self.discriminator(outputs).view(bs, num_pos)
+        return outputs
 
 
 class ELECTRA_GENERATOR(nn.Module):
     def __init__(self, config, device):
         super(ELECTRA_GENERATOR, self).__init__()
         self.bert = BERT(config, device=device)
-        self.activation = torch.nn.GELU()
+        self.activation = torch.nn.ReLU()
         self.projection = nn.Linear(config.d_head * config.n_head, config.d_model)
         self.language_model = nn.Linear(config.d_model, config.n_enc_vocab, bias=False)
+        self.layernorm = nn.LayerNorm(config.d_model)
         self.language_model.weight = self.bert.encoder.token_embedding.weight
 
     def forward(self, inputs):
@@ -127,6 +145,7 @@ class ELECTRA_GENERATOR(nn.Module):
         outputs = self.bert(inputs)
         outputs = self.projection(outputs)
         outputs = self.activation(outputs)
+        outputs = self.layernorm(outputs)
         outputs = self.language_model(outputs.view(bs * num_pos, -1)).view(bs, num_pos, -1)
         return log_softmax(outputs, dim=2)
 
@@ -146,17 +165,20 @@ class ELECTRA_MODEL(nn.Module):
         ['[UNK]', '[SEP]', '[PAD]', '[CLS]', '[MASK]']
         [100, 102, 0, 101, 103]
         """
+
         masked_tokens, masked_labels, replace_mask = mask_tokens(inputs=seq_tokens, mask_token_index=103,
                                                                  vocab_size=self.cfg.n_enc_vocab,
                                                                  special_token_indices=[100, 102, 0, 101, 103])
         g_logits = self.generator(masked_tokens)
         m_g_logits = g_logits[replace_mask, :]
-        with torch.no_grad():
-            sampled_tokens = sampler(Dist=self.distribution, logits=m_g_logits, device=self.device)
-            generated_tokens = masked_tokens.clone()
-            generated_tokens[replace_mask] = sampled_tokens
-            disc_labels = replace_mask.clone()
-            disc_labels[replace_mask] = (sampled_tokens != masked_labels[replace_mask])
+        sampled_tokens = gumbel_softmax(m_g_logits, hard=True).argmax(-1)
+        
+#             sampled_tokens = sampler(Dist=self.distribution, logits=m_g_logits, device=self.device)
+        
+        generated_tokens = masked_tokens.clone()
+        generated_tokens[replace_mask] = sampled_tokens
+        disc_labels = replace_mask.clone()
+        disc_labels[replace_mask] = (sampled_tokens != masked_tokens[replace_mask])
 
         disc_logits = self.discriminator(generated_tokens)
 
