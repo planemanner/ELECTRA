@@ -204,7 +204,7 @@ class ELECTRA_MODEL(nn.Module):
         generated_tokens = masked_tokens.clone()
         generated_tokens[replace_mask] = sampled_tokens
         disc_labels = replace_mask.clone()
-        disc_labels[replace_mask] = (sampled_tokens != masked_tokens[replace_mask])
+        disc_labels[replace_mask] = (sampled_tokens != generator_labels[replace_mask])
 
         disc_logits = self.discriminator(generated_tokens)
 
