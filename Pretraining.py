@@ -48,7 +48,6 @@ class lr_scheduler:
             param['lr'] = decayed_lr
         self.logger.add_scalar(tag="Learning Rate", scalar_value=decayed_lr, global_step=cur_iter)
 
-
 def model_save(model, optimizer, root_dir, cur_iter, model_type):
     save_path = os.path.join(root_dir, f"{model_type}_ITER_{str(cur_iter+1).zfill(6)}_LM_MODEL.pth")
     torch.save(
@@ -67,8 +66,8 @@ def pretrain(args):
                     "n_layer": 12,  # correct
                     "d_model": 128,  # correct
                     "i_pad": 0,  # correct
-                    "d_ff": 1024,  # correct
-                    "n_head": 4,  # correct
+                    "d_ff": 256,  # correct
+                    "n_head": 1,  # correct
                     "d_head": 64,  # correct
                     "dropout": 0.1,  # correct
                     "layer_norm_epsilon": 1e-12  # correct
@@ -121,11 +120,11 @@ def pretrain(args):
         optimizer.zero_grad()
         seq_tokens = seq_tokens.to(args.device)
         
-        m_g_logits, disc_logits, replace_mask, disc_labels, masked_labels = model(seq_tokens)
+        m_g_logits, disc_logits, replace_mask, disc_labels = model(seq_tokens)
         
         non_pad = (~seq_tokens.eq(0)) & (~seq_tokens.eq(101)) & (~seq_tokens.eq(102))
         
-        G_LOSS = criterion_G(m_g_logits, masked_labels[replace_mask])
+        G_LOSS = criterion_G(m_g_logits, seq_tokens[replace_mask])
 
         D_LOSS = criterion_D(disc_logits[non_pad], disc_labels[non_pad])
         
@@ -157,12 +156,13 @@ def pretrain(args):
             if ((Train_iter_cnt + 1) % args.verbose_period) == 0:
                 print(f"ITER : {str(Train_iter_cnt + 1).zfill(6)}, G_LOSS : {G_LOSS.item()}, D_LOSS : {D_LOSS.item()}")
     Logger.close()
-
+    
+    # lrate=d−0.5model⋅min(step_num−0.5,step_num⋅warmup_steps−1.5)
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lr", type=float, default=5e-4)  # for 128 batch, 5e-4
-    parser.add_argument("--batch_size", type=int, default=32, help="Batch Size")
+    parser.add_argument("--lr", type=float, default=2.5e-4)  # for 128 batch, 5e-4
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch Size")
     parser.add_argument("--wd", type=float, default=1e-2, help="weight decay")  # for 128 batch, 1e-2
     parser.add_argument("--d_loss_weight", type=float, default=50)
     parser.add_argument("--Adam_eps", type=float, default=1e-6)
@@ -172,7 +172,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--log_dir", type=str, default="./logs")
     parser.add_argument("--model_save", type=str, default="./check_points")
-    parser.add_argument("--save_period", type=int, default=50000)
+    parser.add_argument("--save_period", type=int, default=20000)
     parser.add_argument("--verbose_period", type=int, default=50)
     parser.add_argument("--num_workers", type=int, default=16)
 

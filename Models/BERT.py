@@ -117,10 +117,24 @@ class ELECTRA_DISCRIMINATOR(nn.Module):
         super(ELECTRA_DISCRIMINATOR, self).__init__()
         self.bert = BERT(config, device)
         self.projector = nn.Linear(config.d_head * config.n_head
-                                   , config.d_head * config.n_head)
-        self.activation = nn.ReLU()
-        self.discriminator = nn.Linear(config.d_head * config.n_head, 1)
-
+                                   , config.d_model)
+        self.activation = nn.GELU()
+        self.discriminator = nn.Linear(config.d_model, 1)
+        self._init_weights()
+        
+    def _init_weights(self):
+        modules = self.modules()
+        for m in modules:
+            if isinstance(m, nn.Linear):
+                m.weight.data.normal_(mean=0, std=0.02)
+            elif isinstance(m, nn.Embedding):
+                m.weight.data.normal_(mean=0, std=0.02)
+            elif isinstance(m, nn.LayerNorm):
+                m.bias.data.zero_()
+                m.weight.data.fill_(1.0)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                m.bias.data.zero_()
+                
     def forward(self, inputs):
         bs, num_pos = inputs.shape
         outputs = self.bert(inputs)
@@ -134,12 +148,26 @@ class ELECTRA_GENERATOR(nn.Module):
     def __init__(self, config, device):
         super(ELECTRA_GENERATOR, self).__init__()
         self.bert = BERT(config, device=device)
-        self.activation = torch.nn.ReLU()
+        self.activation = torch.nn.GELU()
         self.projection = nn.Linear(config.d_head * config.n_head, config.d_model)
         self.language_model = nn.Linear(config.d_model, config.n_enc_vocab, bias=False)
         self.layernorm = nn.LayerNorm(config.d_model)
         self.language_model.weight = self.bert.encoder.token_embedding.weight
-
+        self._init_weights()
+        
+    def _init_weights(self):
+        modules = self.modules()
+        for m in modules:
+            if isinstance(m, nn.Linear):
+                m.weight.data.normal_(mean=0, std=0.02)
+            elif isinstance(m, nn.Embedding):
+                m.weight.data.normal_(mean=0, std=0.02)
+            elif isinstance(m, nn.LayerNorm):
+                m.bias.data.zero_()
+                m.weight.data.fill_(1.0)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                m.bias.data.zero_()
+                
     def forward(self, inputs):
         bs, num_pos = inputs.shape
         outputs = self.bert(inputs)
@@ -147,7 +175,7 @@ class ELECTRA_GENERATOR(nn.Module):
         outputs = self.activation(outputs)
         outputs = self.layernorm(outputs)
         outputs = self.language_model(outputs.view(bs * num_pos, -1)).view(bs, num_pos, -1)
-        return log_softmax(outputs, dim=2)
+        return outputs
 
 
 class ELECTRA_MODEL(nn.Module):
@@ -159,22 +187,20 @@ class ELECTRA_MODEL(nn.Module):
         self.device = device
         self.cfg = G_config
         weight_sync(self.generator, self.discriminator)
-
+    
     def forward(self, seq_tokens):
         """
         ['[UNK]', '[SEP]', '[PAD]', '[CLS]', '[MASK]']
         [100, 102, 0, 101, 103]
         """
 
-        masked_tokens, masked_labels, replace_mask = mask_tokens(inputs=seq_tokens, mask_token_index=103,
+        masked_tokens, _, replace_mask = mask_tokens(inputs=seq_tokens, mask_token_index=103,
                                                                  vocab_size=self.cfg.n_enc_vocab,
                                                                  special_token_indices=[100, 102, 0, 101, 103])
         g_logits = self.generator(masked_tokens)
+
         m_g_logits = g_logits[replace_mask, :]
-        sampled_tokens = gumbel_softmax(m_g_logits, hard=True).argmax(-1)
-        
-#             sampled_tokens = sampler(Dist=self.distribution, logits=m_g_logits, device=self.device)
-        
+        sampled_tokens = sampler(Dist=self.distribution, logits=m_g_logits, device=self.device)
         generated_tokens = masked_tokens.clone()
         generated_tokens[replace_mask] = sampled_tokens
         disc_labels = replace_mask.clone()
@@ -182,11 +208,11 @@ class ELECTRA_MODEL(nn.Module):
 
         disc_logits = self.discriminator(generated_tokens)
 
-        return m_g_logits, disc_logits, replace_mask, disc_labels.float(), masked_labels
+        return m_g_logits, disc_logits, replace_mask, disc_labels.float()
 
 
 def weight_sync(src_model, tgt_model):
-    tgt_model.bert.encoder.token_embedding.weight = src_model.bert.encoder.token_embedding.weight
+    tgt_model.bert.encoder.token_embedding = src_model.bert.encoder.token_embedding
 
 
 

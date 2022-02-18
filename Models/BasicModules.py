@@ -72,7 +72,7 @@ class EncoderLayer(nn.Module):
         self.pos_ffn_layernorm = nn.LayerNorm(config.d_head * config.n_head)
         self.pos_ff = nn.Sequential(
             nn.Linear(config.d_head * config.n_head, config.d_ff),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(config.d_ff, config.d_head * config.n_head)
         )
 
