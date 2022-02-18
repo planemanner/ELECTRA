@@ -120,11 +120,11 @@ def pretrain(args):
         optimizer.zero_grad()
         seq_tokens = seq_tokens.to(args.device)
         
-        m_g_logits, disc_logits, replace_mask, disc_labels = model(seq_tokens)
+        m_g_logits, disc_logits, replace_mask, disc_labels, generator_labels = model(seq_tokens)
         
         non_pad = (~seq_tokens.eq(0)) & (~seq_tokens.eq(101)) & (~seq_tokens.eq(102))
         
-        G_LOSS = criterion_G(m_g_logits, seq_tokens[replace_mask])
+        G_LOSS = criterion_G(m_g_logits, generator_labels[replace_mask])
 
         D_LOSS = criterion_D(disc_logits[non_pad], disc_labels[non_pad])
         

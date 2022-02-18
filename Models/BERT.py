@@ -194,9 +194,9 @@ class ELECTRA_MODEL(nn.Module):
         [100, 102, 0, 101, 103]
         """
 
-        masked_tokens, _, replace_mask = mask_tokens(inputs=seq_tokens, mask_token_index=103,
-                                                                 vocab_size=self.cfg.n_enc_vocab,
-                                                                 special_token_indices=[100, 102, 0, 101, 103])
+        masked_tokens, generator_labels, replace_mask = mask_tokens(inputs=seq_tokens, mask_token_index=103,
+                                                                    vocab_size=self.cfg.n_enc_vocab,
+                                                                    special_token_indices=[100, 102, 0, 101, 103])
         g_logits = self.generator(masked_tokens)
 
         m_g_logits = g_logits[replace_mask, :]
@@ -208,7 +208,7 @@ class ELECTRA_MODEL(nn.Module):
 
         disc_logits = self.discriminator(generated_tokens)
 
-        return m_g_logits, disc_logits, replace_mask, disc_labels.float()
+        return m_g_logits, disc_logits, replace_mask, disc_labels.float(), generator_labels
 
 
 def weight_sync(src_model, tgt_model):
