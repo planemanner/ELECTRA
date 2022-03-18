@@ -9,12 +9,13 @@ csv.field_size_limit(sys.maxsize)
 
 
 class LM_dataset(Dataset):
-    def __init__(self, d_path):
+    def __init__(self, d_pathes):
         super(LM_dataset, self).__init__()
-        assert "txt" in d_path, "You must put in a file having txt extension"
-        _ft = open(d_path, "r")
-        self.data = _ft.readlines()
-        _ft.close()
+        self.data = []
+        for d_path in d_pathes:
+            _ft = open(d_path, "r")
+            self.data += _ft.readlines()
+            _ft.close()
 
     def __getitem__(self, idx):
         return self.data[idx]
@@ -171,12 +172,4 @@ class FINE_TUNE_COLLATOR:
 
 
 
-
-# for _data in train_loder:
-#     tokenized_data = _data
-#     print(f"data shape : {len(tokenized_data)}")
-#     print(f"data sample : {tokenized_data[0]}")
-#     print(f"data type : {type(tokenized_data[0])}")
-
-#     debug = 0
 

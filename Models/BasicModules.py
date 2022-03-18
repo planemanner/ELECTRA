@@ -72,7 +72,7 @@ class EncoderLayer(nn.Module):
         self.pos_ffn_layernorm = nn.LayerNorm(config.d_head * config.n_head)
         self.pos_ff = nn.Sequential(
             nn.Linear(config.d_head * config.n_head, config.d_ff),
-            nn.GELU(),
+            nn.ReLU(),
             nn.Linear(config.d_ff, config.d_head * config.n_head)
         )
 
@@ -87,11 +87,17 @@ class EncoderLayer(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, config, device):
+    def __init__(self, config, device, segment_info=None):
         super(Encoder, self).__init__()
 
         self.token_embedding = nn.Embedding(config.n_enc_vocab, config.d_model)
         self.pos_embedding = nn.Embedding(config.n_enc_seq + 1, config.d_model)
+
+        if segment_info:
+            self.seg_embedding = nn.Embedding(segment_info["num_seg"], config.d_model)
+        else:
+            self.seg_embedding = None
+
         self.intermediate = nn.Linear(config.d_model, config.d_head * config.n_head)
         self.dropout = nn.Dropout(config.dropout)
         layers = []
@@ -104,12 +110,18 @@ class Encoder(nn.Module):
         self.pad_idx = config.i_pad
         self.device = device
 
-    def forward(self, inputs):
+    def forward(self, inputs, segments=None):
         tokens = self.token_embedding(inputs)
         b, t, e = tokens.size()
 
         positions = self.pos_embedding(torch.arange(t, device=self.device))[None, :, :].expand(b, t, e)
-        x = self.dropout(tokens + positions)
+
+        if self.seg_embedding:
+            seg_embed = self.seg_embedding(segments)
+            x = self.dropout(tokens + positions + seg_embed)
+        else:
+            x = self.dropout(tokens + positions)
+
         x = self.intermediate(x)
         x = self.layers(x)
 

@@ -213,6 +213,3 @@ class ELECTRA_MODEL(nn.Module):
 
 def weight_sync(src_model, tgt_model):
     tgt_model.bert.encoder.token_embedding = src_model.bert.encoder.token_embedding
-
-
-
