@@ -30,7 +30,7 @@ txt format dataset. The converted dataset must be aligned sentence by sentence b
 # Usage
   - For pretraining
     - ```
-      python Pretraining.py 
+      CUDA_VISIBLE_DEVICES={device ids} python Pretraining.py --multiprocessing_distributed 
       ```
   - For fine-tuning
     - will be updated
