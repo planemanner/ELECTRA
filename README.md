@@ -29,9 +29,15 @@ txt format dataset. The converted dataset must be aligned sentence by sentence b
     - *Tesla stock is going to be 2,000 dollars \n*
 # Usage
   - For pretraining
+    If you want to train a model with DDP, then
     - ```
       CUDA_VISIBLE_DEVICES={device ids} python Pretraining.py --multiprocessing_distributed 
       ```
+    If you want to train a model with a sinlge GPU
+    - ```
+      CUDA_VISIBLE_DEVICES=0 python Pretraining.py
+      ```
+    
   - For fine-tuning
     - will be updated
   - For LM_DEMO

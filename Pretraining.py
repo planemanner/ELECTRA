@@ -3,7 +3,7 @@ from data_related.utils import Config
 from data_related.Custom_dataloader import LM_dataset, LM_collater
 from torch.utils.data import DataLoader
 from Models.BERT import ELECTRA_MODEL
-from Models.BasicModules import get_attn_pad_mask
+
 import argparse
 from transformers import AutoTokenizer
 import random
@@ -75,27 +75,34 @@ def model_save(model, optimizer, scaler, root_dir, cur_iter, model_type):
     print(f"\n Trained model is saved at {save_path} \n")
 
             
-def pretrain(seq_tokens, model, lr_controller,
+def pretrain(seq_tokens, key_pad_mask, model, lr_controller,
              Logger, criterion_D, criterion_G, optimizer,
-             iteration, scaler, args):
-    print(f"cur train : {iteration}")
+             iteration, scaler, args, rank):
     lr_controller.lr_tune(cur_iter=iteration)
 
     optimizer.zero_grad()
 
-    m_g_logits, disc_logits, replace_mask, disc_labels, generator_labels = model(seq_tokens)
-
-    non_pad = (~seq_tokens.eq(0)) & (~seq_tokens.eq(101)) & (~seq_tokens.eq(102))
+    m_g_logits, disc_logits, replace_mask, disc_labels, generator_labels = model(seq_tokens, key_pad_mask)
+    """
+    all special tokens = [100, 102, 0, 101, 103]
+    """
 
     G_LOSS = criterion_G(m_g_logits, generator_labels[replace_mask])
-
-    D_LOSS = criterion_D(disc_logits[non_pad], disc_labels[non_pad])
+    """
+    active_loss = attention_mask.view(-1, discriminator_sequence_output.shape[1]) == 1
+    active_logits = logits.view(-1, discriminator_sequence_output.shape[1])[active_loss]
+    active_labels = labels[active_loss]
+    loss = loss_fct(active_logits, active_labels.float())
+    """
+    active_loss = key_pad_mask.view(-1, disc_logits.shape[1]) == 1
+    active_logits = disc_logits.view(-1, disc_logits.shape[1])[active_loss]
+    D_LOSS = criterion_D(active_logits, disc_labels[active_loss])
 
     loss = G_LOSS + args.d_loss_weight * D_LOSS
     scaler.scale(loss).backward()
     scaler.step(optimizer)
     scaler.update()
-    torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
+#     torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
 
     torch.cuda.empty_cache()
 
@@ -107,21 +114,26 @@ def pretrain(seq_tokens, model, lr_controller,
         Logger.add_scalar(tag="D_Loss / Train",
                           scalar_value=D_LOSS.item(),
                           global_step=iteration)
-
-        if ((iteration + 1) % args.verbose_period) == 0:
-            print(f"ITER : {str(iteration + 1).zfill(6)}, G_LOSS : {G_LOSS.item()}, D_LOSS : {D_LOSS.item()}")
-
-
+        
+        if not args.multiprocessing_distributed or (args.multiprocessing_distributed and rank == 0):
+            if ((iteration + 1) % args.verbose_period) == 0:
+                print(f"ITER : {str(iteration + 1).zfill(6)}, G_LOSS : {G_LOSS.item()}, D_LOSS : {D_LOSS.item()}")
+                print(f"Current LR: {lr_controller.get_lr()}")
+                
+            
 def main_worker(local_rank, args):
+    
+    if args.multiprocessing_distributed:
+        local_rank = args.group_rank * args.ngpu_per_node + local_rank
+    
+    if args.multiprocessing_distributed:
+        dist.init_process_group(backend=args.backend,
+                                init_method=args.init_method,
+                                world_size=args.world_size,
+                                rank=local_rank)
 
-    local_rank = args.group_rank * args.ngpu_per_node + local_rank
-
-    dist.init_process_group(backend=args.backend,
-                            init_method=args.init_method,
-                            world_size=args.world_size,
-                            rank=local_rank)
-    print(f"current rank {local_rank}")
-    torch.distributed.barrier()
+#     print(f"current rank {local_rank}")
+        torch.distributed.barrier()
     Logger = SummaryWriter(log_dir=args.log_dir)
 
     torch.cuda.set_device(local_rank)
@@ -132,11 +144,12 @@ def main_worker(local_rank, args):
                     "n_layer": 12,  # correct
                     "d_model": 128,  # correct
                     "i_pad": 0,  # correct
-                    "d_ff": 256,  # correct
-                    "n_head": 1,  # correct
+                    "d_ff": 1024,  # correct
+                    "n_head": 4,  # correct
                     "d_head": 64,  # correct
                     "dropout": 0.1,  # correct
-                    "layer_norm_epsilon": 1e-12  # correct
+                    "layer_norm_epsilon": 1e-12,  # correct
+
                     })
 
     D_cfg = Config({"n_enc_vocab": 30522,  # correct
@@ -149,20 +162,23 @@ def main_worker(local_rank, args):
                     "n_head": 4,  # correct
                     "d_head": 64,  # correct
                     "dropout": 0.1,  # correct
-                    "layer_norm_epsilon": 1e-12  # correct
+                    "layer_norm_epsilon": 1e-12,  # correct
                     })
 
     model = ELECTRA_MODEL(D_cfg, G_cfg, device=local_rank).to(local_rank)
+    if args.multiprocessing_distributed:
+        batch_size = int(args.batch_size / args.ngpu_per_node)
+        workers = int((args.num_workers + args.ngpu_per_node - 1) / args.ngpu_per_node)
 
-    batch_size = int(args.batch_size / args.ngpu_per_node)
-    workers = int((args.num_workers + args.ngpu_per_node - 1) / args.ngpu_per_node)
-    args.lr = args.lr / args.ngpu_per_node
-    if local_rank is not None:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], output_device=local_rank)
     else:
-        model.cuda()
-        model = torch.nn.parallel.DistributedDataParallel(model)
-
+        batch_size = args.batch_size
+        workers = args.num_workers
+    
+#     args.lr = args.lr / args.ngpu_per_node
+    
+    if args.multiprocessing_distributed:
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], output_device=local_rank)
+        
     criterion_D = torch.nn.BCEWithLogitsLoss()
     criterion_G = torch.nn.CrossEntropyLoss()
 
@@ -177,6 +193,7 @@ def main_worker(local_rank, args):
     p_list = glob(os.path.join(args.train_data_path, "*.txt"))
     cudnn.benchmark = True
     train_dataset = LM_dataset(d_pathes=p_list)
+    
     if args.multiprocessing_distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     else:
@@ -199,27 +216,28 @@ def main_worker(local_rank, args):
 
     for cur_iter in range(args.total_iteration):
         try:
-            seq_tokens = next(data_iter)
+            seq_tokens, input_mask = next(data_iter)
         except StopIteration:
             data_iter = iter(train_loader)
-            seq_tokens = next(data_iter)
+            seq_tokens, input_mask = next(data_iter)
 
         seq_tokens = seq_tokens.cuda(local_rank, non_blocking=True)
+        input_mask = input_mask.cuda(local_rank, non_blocking=True)
 
-        pretrain(seq_tokens=seq_tokens, model=model, criterion_D=criterion_D,
+        pretrain(seq_tokens=seq_tokens, key_pad_mask=input_mask, model=model, criterion_D=criterion_D,
                  criterion_G=criterion_G, optimizer=optimizer, iteration=cur_iter,
-                 scaler=scaler, args=args, lr_controller=lr_controller, Logger=Logger)
+                 scaler=scaler, args=args, lr_controller=lr_controller, Logger=Logger, rank=local_rank)
 
         if (cur_iter+1) % args.save_period == 0:
-            if not args.multiprocessing_distributed or (args.multiprocessing_distributed and local_rank == 0):
-                # only the first GPU saves checkpoint
 
-                print("Start to save a checkpoint....")
+            # only the first GPU saves checkpoint
 
-                model_save(model=model, optimizer=optimizer, scaler=scaler,
-                           root_dir=args.model_save, cur_iter=cur_iter, model_type="ELECTRA")
+            print("Start to save a checkpoint....")
 
-                print("Check points are successfully saved. ")
+            model_save(model=model, optimizer=optimizer, scaler=scaler,
+                       root_dir=args.model_save, cur_iter=cur_iter, model_type="ELECTRA")
+
+            print("Check points are successfully saved. ")
 
     Logger.close()
 
@@ -239,7 +257,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lr", type=float, default=5e-4)  # for 128 batch, 5e-4
+    parser.add_argument("--lr", type=float, default=2.5e-4)  # for 128 batch, 5e-4
     parser.add_argument("--batch_size", type=int, default=128, help="Batch Size")
     parser.add_argument("--wd", type=float, default=1e-2, help="weight decay")  # for 128 batch, 1e-2
     parser.add_argument("--d_loss_weight", type=float, default=50)
@@ -251,7 +269,7 @@ if __name__ == "__main__":
     parser.add_argument("--log_dir", type=str, default="./logs")
     parser.add_argument("--model_save", type=str, default="./check_points")
     parser.add_argument("--save_period", type=int, default=20000)
-    parser.add_argument("--verbose_period", type=int, default=50)
+    parser.add_argument("--verbose_period", type=int, default=100)
     parser.add_argument("--num_workers", type=int, default=32)
     parser.add_argument("--ngpu_per_node", type=int, default=4)
     parser.add_argument("--group_rank", type=int, default=0)

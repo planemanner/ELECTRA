@@ -30,8 +30,9 @@ class LM_collater:
 
     def __call__(self, batch):
         dict_info = self.tokenizer(batch, padding=True, truncation=True)
-
-        return torch.as_tensor(data=dict_info["input_ids"], dtype=torch.long)
+        attn_masks = dict_info["attention_mask"]
+        
+        return torch.as_tensor(data=dict_info["input_ids"], dtype=torch.long), torch.as_tensor(attn_masks, dtype=torch.bool)
 
 
 class FINE_TUNE_DATASET(Dataset):

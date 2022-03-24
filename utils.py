@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from scipy import stats
 from enum import Enum
+import collections
 
 
 class Summary(Enum):
@@ -294,3 +295,15 @@ class Downstream_wrapper(nn.Module):
         if self.activation:
             outputs = self.activation(outputs)
         return outputs.squeeze()
+    
+
+def ddp2single(model_ckpt):
+    ddp_ckpt = model_ckpt
+    single_ckpt = collections.defaultdict()
+    
+    for module_name in ddp_ckpt:
+        new_name = module_name.replace("module.","")
+        single_ckpt[new_name] = ddp_ckpt[module_name]
+        
+    return single_ckpt
+    
