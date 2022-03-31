@@ -17,7 +17,9 @@
 # Requirements
   - pytorch 1.7+, numpy, python 3.7, tqdm, transformers
 # Features
-  - Current version provides only 1-GPU training.
+  - DDP-based pre-training
+  - Simple word generation demo
+  - Fine-tuning for downstream tasks (e.g., GLUE Benchmark)
 # Dataset
   - Pretraining : English wikipedia, Bookscorpus
   - Before training, you should download above two datasets and convert those a one 
@@ -50,10 +52,9 @@ txt format dataset. The converted dataset must be aligned sentence by sentence b
         ```
         
 # Curruent Status
-  - Finetuning dataloader is updated.
-  - Add-on module will be added for downstream task belonging to GLUE benchmark.
+  - DDP-based training is available
 # To do
-  - Update for usage description of fine-tuning script. 
+  - Benchmark metric correction
 # Miscellaneous
   - Though the ELECTRA paper's author described that they didn't back-propagate the discriminator loss 
     through the generator due to sampling step, actually, we can back-propagate by using gumbel softmax.
